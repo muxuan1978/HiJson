@@ -14,6 +14,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
@@ -26,8 +27,12 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.awt.Insets;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
+import javax.swing.BorderFactory;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -85,16 +90,13 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jdesktop.application.Application;
 import org.jdesktop.application.ResourceMap;
 import org.netbeans.swing.tabcontrol.DefaultTabDataModel;
-import org.netbeans.swing.tabcontrol.TabData;
-import org.netbeans.swing.tabcontrol.TabDataModel;
-import org.netbeans.swing.tabcontrol.TabbedContainer;
-import org.netbeans.swing.tabcontrol.event.ComplexListDataEvent;
-import org.netbeans.swing.tabcontrol.event.ComplexListDataListener;
+import javax.swing.JTabbedPane;
+import javax.swing.event.ChangeListener;
+import javax.swing.event.ChangeEvent;
 
 public class MainView extends FrameView {
     private JDialog     aboutBox;
-    private TabDataModel tabDataModel;
-    private TabbedContainer  tabbedContainer;
+    private JTabbedPane tabbedPane;
     private Map jsonEleTreeMap = new HashMap();
     private boolean isTxtFindDlgOpen = false;
     private boolean isTreeFinDlgdOpen = false;
@@ -111,32 +113,65 @@ public class MainView extends FrameView {
 
 
     private void initUI(){
-        
+
+        // 全局 UI 调优：宽松精致的间距
+        UIManager.put("TextComponent.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.margin", new Insets(6, 10, 6, 10));
+        UIManager.put("Button.margin", new Insets(5, 14, 5, 14));
+        UIManager.put("ToolBar.spacing", 4);
+        UIManager.put("SplitPane.dividerSize", 7);
+        UIManager.put("Tree.rowHeight", 26);
+        UIManager.put("Tree.showsRootHandles", true);
+        UIManager.put("ScrollPane.border", BorderFactory.createEmptyBorder());
+        UIManager.put("TabbedPane.contentBorderInsets", new Insets(4, 4, 4, 4));
+
         Image ico = new ImageIcon(getClass().getResource("resources/json.png")).getImage();
         getFrame().setIconImage(ico);
         setToolBar(createToolBar());
         setMenuBar(createMenuBar());
         initTabbedContainer();
-        setComponent(tabbedContainer);
+        setComponent(tabbedPane);
     }
 
     private JToolBar createToolBar(){
         JToolBar toolbar = new JToolBar();
+        toolbar.setFloatable(false);
+        toolbar.setBorderPainted(false);
+        toolbar.setMargin(new Insets(6, 4, 6, 4));
+
         final JTextField textField = new JTextField();
-        textField.setMaximumSize(new Dimension(180,25));
+        textField.setMaximumSize(new Dimension(180, 30));
+        textField.putClientProperty("JTextField.placeholderText", "输入标题...");
         JButton btnAppTitle = new JButton("标题修改");
-        JButton btnFormat = new JButton("格式化(F)");
-        JButton btnClean = new JButton("清空(D)");
-        JButton btnParse = new JButton("粘帖(V)");
-        JButton btnNewLine = new JButton("清除(\\n)");
-        JButton btnXG = new JButton("清除(\\)");
+        JButton btnFormat = new JButton("格式化");
+        JButton btnClean = new JButton("清空");
+        JButton btnParse = new JButton("粘贴");
+        JButton btnNewLine = new JButton("清除\\n");
+        JButton btnXG = new JButton("清除\\");
         JButton btnTxtFind = new JButton("文本查找");
         JButton btnNodeFind = new JButton("节点查找");
-        JButton btnNewTab = new JButton("新标签(N)");
-        JButton btnSelTabName = new JButton("标签名修改");
-        JButton btnCloseTab = new JButton("关闭标签");
-        
-        btnFormat.setBackground(Color.GREEN);
+        JButton btnNewTab = new JButton("新标签");
+        JButton btnSelTabName = new JButton("改名");
+        JButton btnCloseTab = new JButton("关闭");
+        JButton btnExpandAll = new JButton("展开全部");
+
+        btnFormat.setBackground(new Color(76, 175, 80));
+        btnFormat.setForeground(Color.WHITE);
+        btnExpandAll.setBackground(new Color(66, 165, 245));
+        btnExpandAll.setForeground(Color.WHITE);
+
+        // 统一按钮样式
+        Font btnFont = new Font("SansSerif", Font.PLAIN, 13);
+        JButton[] buttons = {btnAppTitle, btnFormat, btnClean, btnParse, btnNewLine, btnXG,
+                btnTxtFind, btnNodeFind, btnNewTab, btnSelTabName, btnCloseTab, btnExpandAll};
+        for (JButton btn : buttons) {
+            btn.setFont(btnFont);
+            btn.setFocusable(false);
+            btn.putClientProperty("JButton.buttonType", "toolBarButton");
+        }
+        textField.setFont(btnFont);
 
         btnAppTitle.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -188,6 +223,12 @@ public class MainView extends FrameView {
             }
         });
 
+        btnExpandAll.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                expandAllJson();
+            }
+        });
+
         btnTxtFind.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 if(isTxtFindDlgOpen) return;
@@ -206,7 +247,7 @@ public class MainView extends FrameView {
             public void actionPerformed(ActionEvent e) {
                 int selIndex = getTabIndex();
                 if(selIndex>=0){
-                    tabDataModel.setText(selIndex, textField.getText());
+                    tabbedPane.setTitleAt(selIndex, textField.getText());
                     System.out.println("Modify HashCode : " + getTree(selIndex).hashCode() + " . TabTitle : " + textField.getText() + " !");
                 }
             }
@@ -222,13 +263,19 @@ public class MainView extends FrameView {
             public void actionPerformed(ActionEvent e) {
                 int selIndex = getTabIndex();
                 if(selIndex >= 0){
-                    tabDataModel.removeTab(selIndex);
+                    JTree tree = getTree(selIndex);
+                    if(tree != null){
+                        jsonEleTreeMap.remove(tree.hashCode());
+                        System.out.println("Remove HashCode: "+ tree.hashCode() + ". Close Tab: " + tabbedPane.getTitleAt(selIndex) + " !");
+                    }
+                    tabbedPane.remove(selIndex);
                 }
             }
         });
         toolbar.add(btnNewTab);
         toolbar.add(btnCloseTab);
         toolbar.add(btnFormat);
+        toolbar.add(btnExpandAll);
         toolbar.add(btnClean);
         toolbar.add(btnParse);
         toolbar.add(btnNewLine);
@@ -243,7 +290,7 @@ public class MainView extends FrameView {
     }
 
     private int getTabIndex(){
-        return tabbedContainer.getSelectionModel().getSelectedIndex();
+        return tabbedPane.getSelectedIndex();
     }
 
     private JMenuItem createMenuItem(String name,int keyCode){
@@ -311,6 +358,14 @@ public class MainView extends FrameView {
         });
         editMenu.add(menuItemFormat);
 
+        JMenuItem menuItemExpandAll = createMenuItem("展开全部(E)", KeyEvent.VK_E);
+        menuItemExpandAll.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent evt) {
+                expandAllJson();
+            }
+        });
+        editMenu.add(menuItemExpandAll);
+
         menuBar.add(editMenu);
 
         toolMenu.setText(resourceMap.getString("toolMenu.text"));
@@ -363,40 +418,15 @@ public class MainView extends FrameView {
 
 
     private void initTabbedContainer() {
-        TabData tabData = newTabData("Welcome!","This is a Tab!",null);
-	tabDataModel = new DefaultTabDataModel(new TabData[] { tabData });
-	tabbedContainer = new TabbedContainer(tabDataModel,TabbedContainer.TYPE_EDITOR);
-        tabbedContainer.getSelectionModel().setSelectedIndex(0);
-        tabbedContainer.setShowCloseButton(true);
-        tabDataModel.addComplexListDataListener(new ComplexListDataListener() {
-            public void indicesAdded(ComplexListDataEvent clde) {}
-            public void indicesRemoved(ComplexListDataEvent clde) {}
-            public void indicesChanged(ComplexListDataEvent clde) {}
-            public void intervalAdded(ListDataEvent e) {}
-            public void intervalRemoved(ListDataEvent e) {
-                ComplexListDataEvent ce = (ComplexListDataEvent)e;
-                TabData[] tbArr = ce.getAffectedItems();
-                if(tbArr!=null && tbArr.length>0){
-                     tbArr[0].getText();
-                     JTree tree = getTree(tbArr[0]);
-                     if(tree!=null){
-                         jsonEleTreeMap.remove(tree.hashCode());
-                         System.out.println("Remove HashCode: "+ tree.hashCode() + ". Close Tab: " + tbArr[0].getText() + " !");
-                     }
-                }
-            }
-            public void contentsChanged(ListDataEvent e) {}
-        });
+        tabbedPane = new JTabbedPane();
+        tabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        addTab("Welcome!", true);
 
-        tabbedContainer.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                //System.out.println("@@@:TabbedContainerActionCommand = "+e.getActionCommand());
-                if("select".equalsIgnoreCase(e.getActionCommand())){
-                    treePathLst.clear();
-                }
+        tabbedPane.addChangeListener(new ChangeListener() {
+            public void stateChanged(ChangeEvent e) {
+                treePathLst.clear();
             }
         });
-
     }
 
     public void showAboutBox() {
@@ -408,8 +438,10 @@ public class MainView extends FrameView {
         MainApp.getApplication().show(aboutBox);
     }
 
-    private TabData newTabData(String tabName,String tabTip,Icon icon){
+    private JSplitPane newTabSplitPane(){
         final JSplitPane splitPane = new JSplitPane();
+        splitPane.setDividerSize(7);
+        splitPane.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         splitPane.addComponentListener(new ComponentListener() {
             public void componentResized(ComponentEvent e) {
                  splitPane.setDividerLocation(0.45);
@@ -420,6 +452,7 @@ public class MainView extends FrameView {
         });
 
         RSyntaxTextArea textArea = newTextArea();
+        textArea.setMargin(new Insets(8, 8, 8, 8));
        
 //        textArea.set
         RTextScrollPane sp = new RTextScrollPane(textArea);
@@ -428,6 +461,8 @@ public class MainView extends FrameView {
         //splitPane.setLeftComponent(new JScrollPane(textArea));
 
         final JSplitPane rightSplitPane = new JSplitPane();
+        rightSplitPane.setDividerSize(7);
+        rightSplitPane.setBorder(BorderFactory.createEmptyBorder());
         rightSplitPane.addComponentListener(new ComponentListener() {
             public void componentResized(ComponentEvent e) {
                 int w = rightSplitPane.getWidth();
@@ -449,10 +484,8 @@ public class MainView extends FrameView {
         rightSplitPane.setRightComponent(new JScrollPane(table));
 
         splitPane.setRightComponent(rightSplitPane);
-        
-        TabData tabData = new TabData(splitPane, icon, tabName, tabTip);
-        
-        return tabData;
+
+        return splitPane;
     }
 
     private RSyntaxTextArea newTextArea(){
@@ -540,20 +573,26 @@ public class MainView extends FrameView {
     }
 
     private int addTab(String tabName,boolean isSel){
-        TabData  tabData = newTabData(tabName,tabName,null);
-        int newIndex = tabbedContainer.getTabCount();
-        tabDataModel.addTab(newIndex, tabData);
+        JSplitPane splitPane = newTabSplitPane();
+        tabbedPane.addTab(tabName, splitPane);
+        int newIndex = tabbedPane.getTabCount() - 1;
         if(isSel){
-            tabbedContainer.getSelectionModel().setSelectedIndex(newIndex);
+            tabbedPane.setSelectedIndex(newIndex);
         }
         return newIndex;
     }
 
-    private JTextArea getTextArea(){
+    private JSplitPane getSelectedSplitPane(){
         int selIndex = getTabIndex();
         if(selIndex >= 0){
-            TabData selTabData = tabDataModel.getTab(selIndex);
-            JSplitPane selSplitPane = (JSplitPane)selTabData.getComponent();
+            return (JSplitPane) tabbedPane.getComponentAt(selIndex);
+        }
+        return null;
+    }
+
+    private JTextArea getTextArea(){
+        JSplitPane selSplitPane = getSelectedSplitPane();
+        if(selSplitPane != null){
             JScrollPane sp = (JScrollPane)selSplitPane.getLeftComponent();
             JViewport vp = (JViewport)sp.getComponent(0);
             JTextArea ta = (JTextArea)vp.getComponent(0);
@@ -562,11 +601,8 @@ public class MainView extends FrameView {
         return null;
     }
 
-     private JTree getTree(TabData tabData){
-         if(tabData==null){
-             return null;
-         }
-         JSplitPane selSplitPane = (JSplitPane)tabData.getComponent();
+     private JTree getTreeFromSplitPane(JSplitPane selSplitPane){
+         if(selSplitPane == null) return null;
          JSplitPane rightSplitPane = (JSplitPane)selSplitPane.getRightComponent();
          JScrollPane sp = (JScrollPane)rightSplitPane.getLeftComponent();
          JViewport vp = (JViewport)sp.getComponent(0);
@@ -576,8 +612,8 @@ public class MainView extends FrameView {
 
     private JTree getTree(int tabIndex){
         if(tabIndex >= 0){
-            TabData selTabData = tabDataModel.getTab(tabIndex);
-            return getTree(selTabData);
+            JSplitPane sp = (JSplitPane) tabbedPane.getComponentAt(tabIndex);
+            return getTreeFromSplitPane(sp);
         }
         return null;
     }
@@ -588,8 +624,7 @@ public class MainView extends FrameView {
 
     private JTable getTable(int tabIndex){
         if(tabIndex >= 0){
-            TabData selTabData = tabDataModel.getTab(tabIndex);
-            JSplitPane selSplitPane = (JSplitPane)selTabData.getComponent();
+            JSplitPane selSplitPane = (JSplitPane) tabbedPane.getComponentAt(tabIndex);
             JSplitPane rightSplitPane = (JSplitPane)selSplitPane.getRightComponent();
             JScrollPane sp = (JScrollPane)rightSplitPane.getRightComponent();
             JViewport vp = (JViewport)sp.getComponent(0);
@@ -601,6 +636,85 @@ public class MainView extends FrameView {
 
     private JTable getTable(){
         return getTable(getTabIndex());
+    }
+
+    private void expandAllJson(){
+        JTextArea ta = getTextArea();
+        String text = ta.getText().trim();
+        if(text.isEmpty()) return;
+        JsonElement jsonEle = null;
+        // 优先使用已解析的 JsonElement（格式化后文本已被 unescapeJava，无法重新解析）
+        JTree curTree = getTree();
+        if(curTree != null && jsonEleTreeMap.containsKey(curTree.hashCode())){
+            jsonEle = (JsonElement) jsonEleTreeMap.get(curTree.hashCode());
+        }
+        if(jsonEle == null){
+            // 缓存中没有，先重新格式化以获取有效的 JsonElement
+            formatJson();
+            curTree = getTree();
+            if(curTree != null && jsonEleTreeMap.containsKey(curTree.hashCode())){
+                jsonEle = (JsonElement) jsonEleTreeMap.get(curTree.hashCode());
+            }
+            if(jsonEle == null) return;
+        }
+        jsonEle = expandNestedJson(jsonEle);
+        GsonBuilder gb = new GsonBuilder();
+        gb.setPrettyPrinting();
+        gb.serializeNulls();
+        Gson gson = gb.create();
+        String jsonStr = gson.toJson(jsonEle);
+        if(jsonStr != null){
+            jsonStr = StringEscapeUtils.unescapeJava(jsonStr);
+            ta.setText(jsonStr);
+        }
+
+        JTree tree = getTree();
+        jsonEleTreeMap.put(tree.hashCode(), jsonEle);
+        DefaultMutableTreeNode root = Kit.objNode("JSON");
+        DefaultTreeModel model = (DefaultTreeModel)tree.getModel();
+        try {
+            createJsonTree(jsonEle, root);
+            model.setRoot(root);
+            setNodeIcon(tree);
+        } catch (Exception ex) {
+            root.removeAllChildren();
+            model.setRoot(root);
+            showMessageDialog("创建json树失败！", ex.getMessage());
+        }
+        System.gc();
+    }
+
+    private JsonElement expandNestedJson(JsonElement ele) {
+        if (ele.isJsonObject()) {
+            JsonObject obj = ele.getAsJsonObject();
+            JsonObject newObj = new JsonObject();
+            for (java.util.Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+                newObj.add(entry.getKey(), expandNestedJson(entry.getValue()));
+            }
+            return newObj;
+        } else if (ele.isJsonArray()) {
+            JsonArray arr = ele.getAsJsonArray();
+            JsonArray newArr = new JsonArray();
+            for (JsonElement child : arr) {
+                newArr.add(expandNestedJson(child));
+            }
+            return newArr;
+        } else if (ele.isJsonPrimitive()) {
+            JsonPrimitive prim = ele.getAsJsonPrimitive();
+            if (prim.isString()) {
+                String val = prim.getAsString().trim();
+                if ((val.startsWith("{") && val.endsWith("}")) || (val.startsWith("[") && val.endsWith("]"))) {
+                    try {
+                        JsonParser parser = new JsonParser();
+                        JsonElement parsed = parser.parse(val);
+                        if (parsed.isJsonObject() || parsed.isJsonArray()) {
+                            return expandNestedJson(parsed);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+        return ele;
     }
 
     private void formatJson(){
@@ -652,7 +766,7 @@ public class MainView extends FrameView {
     }
 
     private String getTabTitle(){
-        return tabDataModel.getTab(getTabIndex()).getText();
+        return tabbedPane.getTitleAt(getTabIndex());
     }
 
     /**
@@ -1052,8 +1166,7 @@ public class MainView extends FrameView {
         if(selIndex < 0){
             return;
         }
-        TabData selTabData = tabDataModel.getTab(selIndex);
-        JSplitPane splitPane = (JSplitPane)selTabData.getComponent();
+        JSplitPane splitPane = (JSplitPane) tabbedPane.getComponentAt(selIndex);
         if (splitPane.getOrientation() == JSplitPane.VERTICAL_SPLIT) {
             splitPane.setOrientation(JSplitPane.HORIZONTAL_SPLIT);
             splitPane.setDividerLocation(0.45);
@@ -1071,47 +1184,75 @@ public class MainView extends FrameView {
 
         public void mouseClicked(MouseEvent e) {}
 
-        public void mousePressed(MouseEvent e) {}
+        public void mousePressed(MouseEvent e) { checkPopup(e); }
 
-        public void mouseReleased(MouseEvent e) {
+        public void mouseReleased(MouseEvent e) { checkPopup(e); }
+
+        private void checkPopup(MouseEvent e) {
+            if (!SwingUtilities.isRightMouseButton(e)) return;
             TreePath path = tree.getPathForLocation(e.getX(), e.getY());
-            if (path == null)  return;
+            if (path == null) return;
             tree.setSelectionPath(path);
             DefaultMutableTreeNode selNode = (DefaultMutableTreeNode) tree.getLastSelectedPathComponent();
-            if (e.isPopupTrigger()) {
-                JPopupMenu popMenu = new JPopupMenu();
-                JMenuItem copyValue = new JMenuItem("复制 键值");
-                JMenuItem copyKey = new JMenuItem("复制 键名");
-                JMenuItem copyPath = new JMenuItem("复制 路径");
-                JMenuItem copyKeyValue = new JMenuItem("复制 键名键值");
-                JMenuItem copyNode = new JMenuItem("复制 节点内容");
-                JMenuItem copyPathAllVal = new JMenuItem("复制 同路径键值");
-                JMenuItem copySingleNodeString = new JMenuItem("复制 MAP式内容");
-                JMenuItem copyNodeFormat = new JMenuItem("复制 节点内容带格式");
-                
-                popMenu.add(copyKey);
-                popMenu.add(copyValue);
-                popMenu.add(copyPath);
-                popMenu.add(copyNode);
-                popMenu.add(copyKeyValue);
-                popMenu.add(copySingleNodeString);
-                popMenu.add(copyPathAllVal);
-                popMenu.add(copyNodeFormat);
-                copyKey.addActionListener(new TreeNodeMenuItemActionListener(tree,1, selNode));
-                copyValue.addActionListener(new TreeNodeMenuItemActionListener(tree,2, selNode));
-                copyKeyValue.addActionListener(new TreeNodeMenuItemActionListener(tree,3, selNode));
-                copyPath.addActionListener(new TreeNodeMenuItemActionListener(tree,4, path));
-                copyPathAllVal.addActionListener(new TreeNodeMenuItemActionListener(tree,5,selNode));
-                copyNode.addActionListener(new TreeNodeMenuItemActionListener(tree,6,path));
-                copyNodeFormat.addActionListener(new TreeNodeMenuItemActionListener(tree,7,path));
-                copySingleNodeString.addActionListener(new TreeNodeMenuItemActionListener(tree,8,selNode));
-                popMenu.show(e.getComponent(), e.getX(), e.getY());
-            }
+            JPopupMenu popMenu = new JPopupMenu();
+            JMenuItem copyValue = new JMenuItem("复制 键值");
+            JMenuItem copyKey = new JMenuItem("复制 键名");
+            JMenuItem copyPath = new JMenuItem("复制 路径");
+            JMenuItem copyKeyValue = new JMenuItem("复制 键名键值");
+            JMenuItem copyNode = new JMenuItem("复制 节点内容");
+            JMenuItem copyPathAllVal = new JMenuItem("复制 同路径键值");
+            JMenuItem copySingleNodeString = new JMenuItem("复制 MAP式内容");
+            JMenuItem copyNodeFormat = new JMenuItem("复制 节点内容带格式");
+
+            popMenu.add(copyKey);
+            popMenu.add(copyValue);
+            popMenu.add(copyPath);
+            popMenu.add(copyNode);
+            popMenu.add(copyKeyValue);
+            popMenu.add(copySingleNodeString);
+            popMenu.add(copyPathAllVal);
+            popMenu.add(copyNodeFormat);
+            copyKey.addActionListener(new TreeNodeMenuItemActionListener(tree,1, selNode));
+            copyValue.addActionListener(new TreeNodeMenuItemActionListener(tree,2, selNode));
+            copyKeyValue.addActionListener(new TreeNodeMenuItemActionListener(tree,3, selNode));
+            copyPath.addActionListener(new TreeNodeMenuItemActionListener(tree,4, path));
+            copyPathAllVal.addActionListener(new TreeNodeMenuItemActionListener(tree,5,selNode));
+            copyNode.addActionListener(new TreeNodeMenuItemActionListener(tree,6,path));
+            copyNodeFormat.addActionListener(new TreeNodeMenuItemActionListener(tree,7,path));
+            copySingleNodeString.addActionListener(new TreeNodeMenuItemActionListener(tree,8,selNode));
+            popMenu.show(e.getComponent(), e.getX(), e.getY());
         }
 
         public void mouseEntered(MouseEvent e) {}
 
         public void mouseExited(MouseEvent e) {}
+    }
+
+    /**
+     * 根据树节点路径，在 JsonElement 中找到对应的子元素
+     */
+    private static JsonElement resolveJsonElement(DefaultMutableTreeNode node, JsonElement root) {
+        javax.swing.tree.TreeNode[] path = node.getPath();
+        JsonElement current = root;
+        // path[0] 是根节点 "o-JSON"，从 path[1] 开始
+        for (int i = 1; i < path.length && current != null; i++) {
+            String nodeStr = path[i].toString();
+            String[] parts = Kit.pstr(nodeStr);
+            String key = parts[1];
+            if (current.isJsonObject()) {
+                current = current.getAsJsonObject().get(key);
+            } else if (current.isJsonArray()) {
+                int idx = Kit.getIndex(key);
+                if (idx >= 0 && idx < current.getAsJsonArray().size()) {
+                    current = current.getAsJsonArray().get(idx);
+                } else {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
+        return current;
     }
 
     private class TreeNodeMenuItemActionListener implements ActionListener{
@@ -1215,6 +1356,8 @@ public class MainView extends FrameView {
             if(obj==null) return;
             StringSelection stringSelection = null;
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            String str = obj.toString();
+            String[] arr = Kit.pstr(str);
             if(optType == 4){
                  String path = copyTreeNodePath((TreePath)obj);
                  path = StringUtils.replace(path, String.valueOf(dot), ".");
@@ -1231,18 +1374,33 @@ public class MainView extends FrameView {
                 String path = copyTreeNodePath((TreePath)obj);
                 boolean isForamt = false;
                 if(optType == 7) isForamt = true;
-                String str = copyNodeContent(path,isForamt);
-                stringSelection = new StringSelection(str);
+                String content = copyNodeContent(path,isForamt);
+                stringSelection = new StringSelection(content);
                 clipboard.setContents(stringSelection, null);
                  return;
             }
             else{
-                String str = obj.toString();
-                String[] arr = Kit.pstr(str);
                  if("<null>".equals(arr[2])){
                         arr[2] = "null";
                  }
                 if (optType == 1 || optType == 2){
+                    if (optType == 2 && (Kit.cObj.equals(arr[0]) || Kit.cArr.equals(arr[0]))) {
+                        // 对象/数组节点：直接从 jsonEleTreeMap 按树节点路径取 JSON
+                        DefaultMutableTreeNode selNode = (DefaultMutableTreeNode) obj;
+                        JsonElement jsonEle = (JsonElement) jsonEleTreeMap.get(tree.hashCode());
+                        if (jsonEle != null) {
+                            JsonElement target = resolveJsonElement(selNode, jsonEle);
+                            if (target != null && !target.isJsonNull()) {
+                                Gson gson = new GsonBuilder().serializeNulls().create();
+                                String jsonStr = gson.toJson(target);
+                                if (jsonStr != null && !jsonStr.isEmpty()) {
+                                    stringSelection = new StringSelection(jsonStr);
+                                    clipboard.setContents(stringSelection, null);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     stringSelection = new StringSelection(arr[optType]);
                 } else if (optType == 3) {
                     stringSelection = new StringSelection(str.substring(2));
@@ -1259,31 +1417,32 @@ public class MainView extends FrameView {
 
         public void mouseClicked(MouseEvent e) {}
 
-        public void mousePressed(MouseEvent e) {}
+        public void mousePressed(MouseEvent e) { checkPopup(e); }
 
-        public void mouseReleased(MouseEvent e) {
-            if (e.isPopupTrigger()) {
-                JPopupMenu popMenu = new JPopupMenu();
-                JMenuItem mtCopy = new JMenuItem(resourceMap.getString("mtCopy.text"));
-                JMenuItem mtPaste = new JMenuItem(resourceMap.getString("mtPaste.text"));
-                JMenuItem mtSelAll = new JMenuItem(resourceMap.getString("mtSelAll.text"));
-                JMenuItem mtClean = new JMenuItem(resourceMap.getString("mtClean.text"));
-                
-                popMenu.add(mtCopy);
-                popMenu.add(mtPaste);
-                popMenu.add(mtSelAll);
-                popMenu.add(mtClean);
-                JTextArea ta = getTextArea();
-                if(ta.getSelectedText() == null || ta.getSelectedText().length()==0){
-                    mtCopy.setEnabled(false);
-                }
+        public void mouseReleased(MouseEvent e) { checkPopup(e); }
 
-                mtCopy.addActionListener(new TextAreaMenuItemActionListener(1));
-                mtPaste.addActionListener(new TextAreaMenuItemActionListener(2));
-                mtSelAll.addActionListener(new TextAreaMenuItemActionListener(3));
-                mtClean.addActionListener(new TextAreaMenuItemActionListener(4));
-                popMenu.show(e.getComponent(), e.getX(), e.getY());
+        private void checkPopup(MouseEvent e) {
+            if (!SwingUtilities.isRightMouseButton(e)) return;
+            JPopupMenu popMenu = new JPopupMenu();
+            JMenuItem mtCopy = new JMenuItem(resourceMap.getString("mtCopy.text"));
+            JMenuItem mtPaste = new JMenuItem(resourceMap.getString("mtPaste.text"));
+            JMenuItem mtSelAll = new JMenuItem(resourceMap.getString("mtSelAll.text"));
+            JMenuItem mtClean = new JMenuItem(resourceMap.getString("mtClean.text"));
+
+            popMenu.add(mtCopy);
+            popMenu.add(mtPaste);
+            popMenu.add(mtSelAll);
+            popMenu.add(mtClean);
+            JTextArea ta = getTextArea();
+            if(ta.getSelectedText() == null || ta.getSelectedText().length()==0){
+                mtCopy.setEnabled(false);
             }
+
+            mtCopy.addActionListener(new TextAreaMenuItemActionListener(1));
+            mtPaste.addActionListener(new TextAreaMenuItemActionListener(2));
+            mtSelAll.addActionListener(new TextAreaMenuItemActionListener(3));
+            mtClean.addActionListener(new TextAreaMenuItemActionListener(4));
+            popMenu.show(e.getComponent(), e.getX(), e.getY());
         }
 
         public void mouseEntered(MouseEvent e) {}

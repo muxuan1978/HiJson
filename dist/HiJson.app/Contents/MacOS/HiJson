@@ -1,0 +1,7 @@
+#!/bin/bash
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+JAR="$APP_DIR/Resources/Java/HiJson.jar"
+LOG="/tmp/hijson-launch.log"
+echo "$(date): Launching HiJson from $JAR" > "$LOG"
+ICON="$APP_DIR/Resources/HiJson.icns"
+exec /opt/java/jdk8/Contents/Home/bin/java -Xms64m -Xmx512m -Xdock:icon="$ICON" -Xdock:name=HiJson -jar "$JAR" "$@" 2>>"$LOG"
