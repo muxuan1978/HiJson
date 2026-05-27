@@ -429,6 +429,15 @@ public class MainView extends FrameView {
         });
     }
 
+    public void receiveExternalText(String text) {
+        addTab("Sent", true);
+        JTextArea ta = getTextArea();
+        if (ta != null) {
+            ta.setText(text);
+            formatJson();
+        }
+    }
+
     public void showAboutBox() {
         if (aboutBox == null) {
             JFrame mainFrame = MainApp.getApplication().getMainFrame();
