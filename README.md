@@ -4,6 +4,12 @@
 
 基于原版 HiJson（藏言/CangYan）改编，针对 macOS 平台进行了大量增强和优化。
 
+## 下载
+
+[**下载 HiJson-macOS.dmg (V2.2.0)**](https://github.com/muxuan1978/HiJson/releases/download/v2.2.0/HiJson-macOS.dmg)
+
+> 双击打开 DMG，将 HiJson 拖入 Applications 文件夹。首次打开需右键 → 打开。
+
 ## 功能特性
 
 - JSON 字符串格式化与树状视图展示
