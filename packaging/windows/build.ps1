@@ -23,20 +23,33 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'jpackage failed.' }
     Copy-Item LICENSE "$work/image/HiJson/LICENSE.txt"
 
-    # Exercise the actual Windows GUI launcher before archiving its runtime.
-    $process = Start-Process "$work/image/HiJson/HiJson.exe" -WorkingDirectory $work -PassThru
+    # The GUI can belong to a child of the native launcher. Check Swing's opened event
+    # inside that JVM. The probe lives in the temporary build tree only.
+    $classes = New-Item -ItemType Directory -Path "$work/probe-classes"
+    & "$Jdk/bin/javac.exe" --release 8 -encoding UTF-8 -d $classes.FullName packaging/windows/WindowProbe.java
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot compile the window probe.' }
+    Set-Content "$work/probe.mf" "Premain-Class: WindowProbe" -Encoding ascii
+    & "$Jdk/bin/jar.exe" cfm "$work/probe.jar" "$work/probe.mf" -C $classes.FullName .
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot package the window probe.' }
+
+    $ready = Join-Path $work 'opened.txt'
+    $start = [Diagnostics.ProcessStartInfo]::new("$work/image/HiJson/HiJson.exe")
+    $start.UseShellExecute = $false
+    $start.WorkingDirectory = $work
+    $start.EnvironmentVariables['JAVA_TOOL_OPTIONS'] = '"-javaagent:' + "$work/probe.jar=$ready" + '"'
+    $process = [Diagnostics.Process]::Start($start)
     try {
-        $deadline = [DateTime]::UtcNow.AddSeconds(60)
-        do {
-            Start-Sleep -Milliseconds 300
-            $process.Refresh()
-            if ($process.HasExited) { throw "HiJson.exe exited with code $($process.ExitCode)." }
-        } until ($process.MainWindowHandle -ne 0 -or [DateTime]::UtcNow -gt $deadline)
-        if ($process.MainWindowHandle -eq 0) { throw 'HiJson.exe did not open a window.' }
-        Write-Host "Windows GUI started: $($process.MainWindowTitle)"
+        if (-not $process.WaitForExit(60000) -or $process.ExitCode -ne 0 -or -not (Test-Path $ready)) {
+            & "$Jdk/bin/jcmd.exe" -l
+            throw 'The packaged EXE did not show the HiJson tree and graph window.'
+        }
+        Write-Host "Windows GUI opened with both editor modes: $(Get-Content $ready -Raw)"
     } finally {
-        if (-not $process.HasExited) { Stop-Process -Id $process.Id }
-        $process.WaitForExit()
+        if (-not $process.HasExited) {
+            & taskkill.exe /PID $process.Id /T /F | Out-Null
+            $process.WaitForExit()
+        }
+        $process.Dispose()
     }
 
     $archive = 'HiJson-Windows-x64.zip'
