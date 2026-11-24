@@ -39,7 +39,7 @@ public class MainApp extends SingleFrameApplication {
         }
         show(new MainView(this));
         mainView = (MainView) getMainView();
-        startSocketServer();
+        if (isMac()) startSocketServer();
     }
 
     /**
@@ -62,18 +62,22 @@ public class MainApp extends SingleFrameApplication {
      * Main method launching the application.
      */
     public static void main(String[] args) {
-        System.setProperty("apple.laf.useScreenMenuBar", "true");
+        if (isMac()) System.setProperty("apple.laf.useScreenMenuBar", "true");
         try {
             com.formdev.flatlaf.FlatLightLaf.setup();
         } catch (Exception ignored) {}
         launch(MainApp.class, args);
     }
 
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").startsWith("Mac");
+    }
+
     private void startSocketServer() {
         Thread t = new Thread(new Runnable() {
             public void run() {
                 try {
-                    ServerSocket server = new ServerSocket(SOCKET_PORT);
+                    ServerSocket server = new ServerSocket(SOCKET_PORT, 50, java.net.InetAddress.getByName("127.0.0.1"));
                     System.out.println("HiJson socket server listening on port " + SOCKET_PORT);
                     while (true) {
                         try {

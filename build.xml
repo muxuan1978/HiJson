@@ -10,6 +10,20 @@
 <project name="HiJson" default="default" basedir=".">
     <description>Builds, tests, and runs the project HiJson.</description>
     <import file="nbproject/build-impl.xml"/>
+    <target name="standalone" depends="compile" description="Build a runnable HiJson JAR with its libraries">
+        <property name="fat.libs" location="${build.dir}/standalone-libs"/>
+        <delete dir="${fat.libs}"/>
+        <unzip dest="${fat.libs}">
+            <fileset dir="lib" includes="*.jar"/>
+            <patternset excludes="META-INF/MANIFEST.MF,META-INF/INDEX.LIST,META-INF/*.SF,META-INF/*.RSA,META-INF/*.DSA,**/module-info.class"/>
+        </unzip>
+        <mkdir dir="${dist.dir}/standalone"/>
+        <jar destfile="${dist.dir}/standalone/HiJson.jar" duplicate="preserve">
+            <manifest><attribute name="Main-Class" value="${main.class}"/></manifest>
+            <fileset dir="${build.classes.dir}"/>
+            <fileset dir="${fat.libs}"/>
+        </jar>
+    </target>
     <!--
 
     There exist several targets which are by default empty and which can be 
