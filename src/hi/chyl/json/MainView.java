@@ -1,66 +1,74 @@
 package hi.chyl.json;
 
-import com.google.gson.Strictness;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.formdev.flatlaf.util.UIScale;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.Strictness;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
 import java.awt.FileDialog;
+import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Image;
+import java.awt.GraphicsEnvironment;
+import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.awt.event.ComponentListener;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
-import java.awt.Insets;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
-import javax.swing.BorderFactory;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.List;
-import javax.swing.ActionMap;
-import javax.swing.Icon;
+import java.util.function.IntConsumer;
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
-import javax.swing.event.ListDataEvent;
-import org.jdesktop.application.SingleFrameApplication;
-import org.jdesktop.application.FrameView;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.JToolBar;
 import javax.swing.JTree;
+import javax.swing.JViewport;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.text.Document;
+import javax.swing.text.Element;
 import javax.swing.text.Segment;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
@@ -75,17 +83,17 @@ import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
 import org.fife.ui.rsyntaxtextarea.Token;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jdesktop.application.Application;
+import org.jdesktop.application.FrameView;
 import org.jdesktop.application.ResourceMap;
-import org.netbeans.swing.tabcontrol.DefaultTabDataModel;
-import javax.swing.JTabbedPane;
-import javax.swing.event.ChangeListener;
-import javax.swing.event.ChangeEvent;
+import org.jdesktop.application.SingleFrameApplication;
 
 public class MainView extends FrameView {
     private static final int DEFAULT_FONT_SIZE = 13;
     private int currentFontSize = DEFAULT_FONT_SIZE;
+    private final EnumMap<WorkspaceIcon, Action> commands = new EnumMap<>(WorkspaceIcon.class);
+    private int documentCount;
 
-    private JDialog     aboutBox;
+    private JDialog aboutBox;
     private JTabbedPane tabbedPane;
     private boolean isTxtFindDlgOpen = false;
     private boolean isTreeFinDlgdOpen = false;
@@ -100,321 +108,167 @@ public class MainView extends FrameView {
     }
 
 
-    private void initUI(){
-
-        // 全局 UI 调优：宽松精致的间距
-        UIManager.put("TextComponent.arc", 8);
-        UIManager.put("Component.arc", 8);
-        UIManager.put("Button.arc", 8);
-        UIManager.put("Component.margin", new Insets(6, 10, 6, 10));
-        UIManager.put("Button.margin", new Insets(5, 14, 5, 14));
-        UIManager.put("ToolBar.spacing", 4);
-        UIManager.put("SplitPane.dividerSize", 7);
-        UIManager.put("Tree.rowHeight", 26);
-        UIManager.put("Tree.showsRootHandles", true);
-        UIManager.put("ScrollPane.border", BorderFactory.createEmptyBorder());
-        UIManager.put("TabbedPane.contentBorderInsets", new Insets(4, 4, 4, 4));
-
-        Image ico = new ImageIcon(getClass().getResource("resources/json.png")).getImage();
-        getFrame().setIconImage(ico);
-        setToolBar(createToolBar());
+    private void initUI() {
+        WorkspaceStyle.install();
+        getFrame().setIconImage(new ImageIcon(getClass().getResource("resources/json.png")).getImage());
+        registerCommands();
+        tabbedPane = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
+        tabbedPane.setBackground(WorkspaceStyle.CHROME);
+        tabbedPane.putClientProperty(FlatClientProperties.TABBED_PANE_TAB_HEIGHT, 30);
+        tabbedPane.putClientProperty(FlatClientProperties.TABBED_PANE_TAB_CLOSABLE, true);
+        tabbedPane.putClientProperty(FlatClientProperties.TABBED_PANE_TAB_CLOSE_CALLBACK, (IntConsumer) this::closeTab);
+        tabbedPane.addChangeListener(e -> treePathLst.clear());
+        newDocument();
         setMenuBar(createMenuBar());
-        initTabbedContainer();
+        setToolBar(createToolBar());
         setComponent(tabbedPane);
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        getFrame().setPreferredSize(new Dimension(Math.min(screen.width, 1160), Math.min(screen.height, 740)));
     }
 
-    private JToolBar createToolBar(){
-        JToolBar toolbar = new JToolBar();
-        toolbar.setFloatable(false);
-        toolbar.setBorderPainted(false);
-        toolbar.setMargin(new Insets(6, 4, 6, 4));
+    private void registerCommands() {
+        command(WorkspaceIcon.NEW, "新建标签页", KeyEvent.VK_N, this::newDocument);
+        command(WorkspaceIcon.OPEN, "打开文件…", KeyEvent.VK_O, () -> chooseFile(FileDialog.LOAD));
+        command(WorkspaceIcon.SAVE, "保存文件…", KeyEvent.VK_S, () -> chooseFile(FileDialog.SAVE));
+        command(WorkspaceIcon.CLOSE, "关闭标签页", 0, () -> closeTab(getTabIndex()));
+        command(WorkspaceIcon.RENAME, "重命名标签页…", 0, () -> rename(false));
+        command(WorkspaceIcon.WINDOW, "修改窗口标题…", 0, () -> rename(true));
+        command(WorkspaceIcon.FORMAT, "格式化", KeyEvent.VK_F, this::formatJson);
+        command(WorkspaceIcon.EXPAND, "展开嵌套 JSON", KeyEvent.VK_E, this::expandAllJson);
+        command(WorkspaceIcon.PASTE, "粘贴并格式化", 0, () -> { getTextArea().paste(); formatJson(); });
+        command(WorkspaceIcon.CLEAR, "清空文本", KeyEvent.VK_D, () -> getTextArea().setText(""));
+        command(WorkspaceIcon.NEWLINE, "移除换行符", 0, () -> getTextArea().setText(getTextArea().getText().replace("\n", "")));
+        command(WorkspaceIcon.SLASH, "移除反斜杠", 0, () -> getTextArea().setText(getTextArea().getText().replace("\\", "")));
+        command(WorkspaceIcon.SEARCH, "查找文本…", 0, () -> {
+            if (!isTxtFindDlgOpen) showFindDialog(1, "查找文本");
+        });
+        command(WorkspaceIcon.FIND_NODE, "查找树节点…", 0, () -> {
+            if (isTreeFinDlgdOpen) return;
+            selectedTab().modes.setSelectedIndex(0);
+            showFindDialog(2, "查找树节点");
+        });
+        command(WorkspaceIcon.LAYOUT, "切换横向 / 纵向布局", KeyEvent.VK_L, this::changeLayout);
+        command(WorkspaceIcon.CONVERT, "Unicode 转换…", KeyEvent.VK_T, this::codeChangeAction);
+        command(WorkspaceIcon.ABOUT, "关于 HiJson", 0, this::showAboutBox);
+        command(WorkspaceIcon.EXIT, "退出 HiJson", 0, () -> MainApp.getApplication().exit());
+    }
 
-        final JTextField textField = new JTextField();
-        textField.setMaximumSize(new Dimension(180, 30));
-        textField.putClientProperty("JTextField.placeholderText", "输入标题...");
-        JButton btnAppTitle = new JButton("标题修改");
-        JButton btnFormat = new JButton("格式化");
-        JButton btnClean = new JButton("清空");
-        JButton btnParse = new JButton("粘贴");
-        JButton btnNewLine = new JButton("清除\\n");
-        JButton btnXG = new JButton("清除\\");
-        JButton btnTxtFind = new JButton("文本查找");
-        JButton btnNodeFind = new JButton("节点查找");
-        JButton btnNewTab = new JButton("新标签");
-        JButton btnSelTabName = new JButton("改名");
-        JButton btnCloseTab = new JButton("关闭");
-        JButton btnExpandAll = new JButton("展开全部");
+    private void command(WorkspaceIcon icon, String label, int key, Runnable run) {
+        Action action = new AbstractAction(label, icon) {
+            @Override public void actionPerformed(ActionEvent e) { run.run(); }
+        };
+        if (key != 0) action.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(key, InputEvent.CTRL_DOWN_MASK));
+        commands.put(icon, action);
+    }
 
-        btnFormat.setBackground(new Color(76, 175, 80));
-        btnFormat.setForeground(Color.WHITE);
-        btnExpandAll.setBackground(new Color(66, 165, 245));
-        btnExpandAll.setForeground(Color.WHITE);
+    private void newDocument() {
+        addTab("未命名 " + ++documentCount, true);
+    }
 
-        // 统一按钮样式
-        Font btnFont = new Font("SansSerif", Font.PLAIN, 13);
-        JButton[] buttons = {btnAppTitle, btnFormat, btnClean, btnParse, btnNewLine, btnXG,
-                btnTxtFind, btnNodeFind, btnNewTab, btnSelTabName, btnCloseTab, btnExpandAll};
-        for (JButton btn : buttons) {
-            btn.setFont(btnFont);
-            btn.setFocusable(false);
-            btn.putClientProperty("JButton.buttonType", "toolBarButton");
+    private void closeTab(int index) {
+        if (index < 0) return;
+        tabbedPane.removeTabAt(index);
+        if (tabbedPane.getTabCount() == 0) newDocument();
+    }
+
+    private void rename(boolean window) {
+        int index = getTabIndex();
+        String current = window ? getFrame().getTitle() : tabbedPane.getTitleAt(index);
+        String name = (String) JOptionPane.showInputDialog(getFrame(), window ? "窗口标题" : "标签页名称",
+                window ? "修改窗口标题" : "重命名标签页", JOptionPane.PLAIN_MESSAGE, null, null, current);
+        if (name == null || name.trim().isEmpty()) return;
+        if (window) getFrame().setTitle(name.trim());
+        else tabbedPane.setTitleAt(index, name.trim());
+    }
+
+    private JButton tool(WorkspaceIcon icon, String label) {
+        JButton button = new JButton(commands.get(icon));
+        button.setText(label);
+        WorkspaceStyle.toolButton(button, (String) commands.get(icon).getValue(Action.NAME));
+        return button;
+    }
+
+    private JPanel toolbarGroup(Component... buttons) {
+        JPanel group = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 3));
+        group.setOpaque(false);
+        for (Component button : buttons) group.add(button);
+        return group;
+    }
+
+    private JToolBar createToolBar() {
+        JToolBar bar = new JToolBar();
+        bar.setFloatable(false);
+        bar.setBackground(WorkspaceStyle.PAPER);
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, WorkspaceStyle.LINE),
+                BorderFactory.createEmptyBorder(UIScale.scale(3), UIScale.scale(8), UIScale.scale(3), UIScale.scale(8))));
+        JButton open = tool(WorkspaceIcon.OPEN, "打开");
+        JButton save = tool(WorkspaceIcon.SAVE, "保存");
+        JButton format = tool(WorkspaceIcon.FORMAT, "格式化");
+        format.putClientProperty("JButton.buttonType", null);
+        format.setBackground(WorkspaceStyle.ACCENT);
+        format.setForeground(Color.WHITE);
+        format.setMargin(new Insets(3, 10, 3, 10));
+        JButton expand = tool(WorkspaceIcon.EXPAND, "展开嵌套 JSON");
+        JButton search = tool(WorkspaceIcon.SEARCH, "查找");
+        JButton more = new JButton(WorkspaceIcon.MORE);
+        WorkspaceStyle.toolButton(more, "更多操作");
+        more.addActionListener(e -> {
+            JPopupMenu menu = new JPopupMenu();
+            for (WorkspaceIcon icon : new WorkspaceIcon[]{WorkspaceIcon.OPEN, WorkspaceIcon.SAVE, WorkspaceIcon.EXPAND,
+                    WorkspaceIcon.SEARCH, WorkspaceIcon.FIND_NODE}) menu.add(commands.get(icon));
+            menu.addSeparator();
+            menu.add(commands.get(WorkspaceIcon.PASTE));
+            menu.add(commands.get(WorkspaceIcon.CLEAR));
+            menu.add(commands.get(WorkspaceIcon.LAYOUT));
+            menu.add(commands.get(WorkspaceIcon.RENAME));
+            menu.show(more, more.getWidth() - menu.getPreferredSize().width, more.getHeight());
+        });
+        bar.add(tool(WorkspaceIcon.NEW, "新建"));
+        bar.add(open);
+        bar.add(save);
+        bar.addSeparator(UIScale.scale(new Dimension(12, 18)));
+        bar.add(format);
+        bar.add(expand);
+        bar.add(Box.createHorizontalGlue());
+        bar.add(search);
+        bar.add(more);
+        int fullWidth = bar.getPreferredSize().width;
+        bar.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent e) {
+                boolean wide = bar.getWidth() >= fullWidth;
+                for (JButton secondary : new JButton[]{open, save, expand, search}) secondary.setVisible(wide);
+            }
+        });
+        return bar;
+    }
+
+    private int getTabIndex() { return tabbedPane.getSelectedIndex(); }
+
+    private JMenu menu(String label, WorkspaceIcon icon, WorkspaceIcon... items) {
+        JMenu menu = new JMenu(label);
+        menu.setIcon(icon);
+        for (WorkspaceIcon item : items) {
+            if (item == null) menu.addSeparator();
+            else menu.add(commands.get(item));
         }
-        textField.setFont(btnFont);
-
-        btnAppTitle.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                System.out.println(textField.getText());
-                getFrame().setTitle(textField.getText());
-            }
-        });
-        btnFormat.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                formatJson();
-            }
-        });
-
-        btnClean.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                  JTextArea ta = getTextArea();
-                  if(ta!=null){
-                      ta.setText("");
-                  }
-
-            }
-        });
-        
-        btnParse.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                 JTextArea ta = getTextArea();
-                 if(ta!=null){
-                      ta.paste();
-                      formatJson();
-                 }
-            }
-        });
-
-        btnNewLine.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                JTextArea ta = getTextArea();
-                 if(ta!=null){
-                      ta.setText(ta.getText().replaceAll("\n", ""));
-                 }
-            }
-        });
-
-        btnXG.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                 JTextArea ta = getTextArea();
-                 if(ta!=null){
-                      ta.setText(ta.getText().replaceAll("\\\\", ""));
-                 }
-            }
-        });
-
-        btnExpandAll.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                expandAllJson();
-            }
-        });
-
-        btnTxtFind.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                if(isTxtFindDlgOpen) return;
-                showFindDialog(1, "文本查找对话框");
-            }
-        });
-
-        btnNodeFind.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                if (isTreeFinDlgdOpen || selectedTab() == null) return;
-                selectedTab().modes.setSelectedIndex(0);
-                showFindDialog(2, "树节点查找对话框");
-            }
-        });
-
-        btnSelTabName.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                int selIndex = getTabIndex();
-                if(selIndex>=0){
-                    tabbedPane.setTitleAt(selIndex, textField.getText());
-                    System.out.println("Modify HashCode : " + getTree(selIndex).hashCode() + " . TabTitle : " + textField.getText() + " !");
-                }
-            }
-        });
-
-        btnNewTab.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                addTab("NewTab",true);
-            }
-        });
-
-        btnCloseTab.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                int selIndex = getTabIndex();
-                if(selIndex >= 0){
-                    tabbedPane.remove(selIndex);
-                }
-            }
-        });
-        toolbar.add(btnNewTab);
-        toolbar.add(btnCloseTab);
-        toolbar.add(btnFormat);
-        toolbar.add(btnExpandAll);
-        toolbar.add(btnClean);
-        toolbar.add(btnParse);
-        toolbar.add(btnNewLine);
-        toolbar.add(btnXG);
-        toolbar.add(btnNodeFind);
-        toolbar.add(btnTxtFind);
-        toolbar.addSeparator(new Dimension(30, 20));
-        toolbar.add(textField);
-        toolbar.add(btnAppTitle);
-        toolbar.add(btnSelTabName);
-        return toolbar;
+        return menu;
     }
 
-    private int getTabIndex(){
-        return tabbedPane.getSelectedIndex();
-    }
-
-    private JMenuItem createMenuItem(String name,int keyCode){
-        JMenuItem menuItem = new JMenuItem();
-        menuItem.setAccelerator(KeyStroke.getKeyStroke(keyCode, InputEvent.CTRL_MASK));
-        menuItem.setText(resourceMap.getString(name+".text"));
-        return menuItem;
-    }
-
-    private JMenuBar createMenuBar(){
-        JMenuBar menuBar = new JMenuBar();
-        JMenu fileMenu = new JMenu();
-        JMenu editMenu = new JMenu();
-        JMenu toolMenu = new JMenu();
-        JMenu helpMenu = new JMenu();
-
-        menuBar.setName("menuBar");
-
-       
-        fileMenu.setText(resourceMap.getString("fileMenu.text"));
-        fileMenu.setName("fileMenu");
-
-        JMenuItem menuItemOpenFile = createMenuItem("menuItemOpenFile", KeyEvent.VK_O);
-        menuItemOpenFile.addActionListener(new ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                chooseFile(FileDialog.LOAD);
-            }
-        });
-        fileMenu.add(menuItemOpenFile);
-        
-        JMenuItem menuItemSaveFile = createMenuItem("menuItemSaveFile", KeyEvent.VK_S);
-        menuItemSaveFile.addActionListener(new ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                chooseFile(FileDialog.SAVE);
-            }
-        });
-        fileMenu.add(menuItemSaveFile);
-
-
-
-        JMenuItem exitMenuItem = new JMenuItem();
-        ActionMap actionMap = Application.getInstance(MainApp.class).getContext().getActionMap(MainView.class, this);
-        exitMenuItem.setAction(actionMap.get("quit"));
-        exitMenuItem.setName("exitMenuItem");
-        exitMenuItem.setText(resourceMap.getString("exitMenu.text"));
-        fileMenu.add(exitMenuItem);
-
-        menuBar.add(fileMenu);
-
-        editMenu.setText(resourceMap.getString("editMenu.text"));
-
-        JMenuItem menuItemClean = createMenuItem("menuItemClean", KeyEvent.VK_D);
-        menuItemClean.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                getTextArea().setText("");
-            }
-        });
-        editMenu.add(menuItemClean);
-
-        JMenuItem menuItemFormat = createMenuItem("menuItemFormat", KeyEvent.VK_F);
-        menuItemFormat.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent evt) {
-                formatJson();
-            }
-        });
-        editMenu.add(menuItemFormat);
-
-        JMenuItem menuItemExpandAll = createMenuItem("展开全部(E)", KeyEvent.VK_E);
-        menuItemExpandAll.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent evt) {
-                expandAllJson();
-            }
-        });
-        editMenu.add(menuItemExpandAll);
-
-        menuBar.add(editMenu);
-
-        toolMenu.setText(resourceMap.getString("toolMenu.text"));
-
-        JMenuItem menuItemLayout = createMenuItem("menuItemLayout", KeyEvent.VK_L);
-        menuItemLayout.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                changeLayout();
-            }
-        });
-        toolMenu.add(menuItemLayout);
-
-        
-
-        JMenuItem menuItemNew = createMenuItem("menuItemNew", KeyEvent.VK_N);
-        menuItemNew.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                addTab("NewTab", true);
-            }
-        });
-        toolMenu.add(menuItemNew);
-
-        JMenuItem menuItemCode = createMenuItem("menuItemCode", KeyEvent.VK_T);
-        menuItemCode.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                codeChangeAction();
-            }
-        });
-        toolMenu.add(menuItemCode);
-
-        menuBar.add(toolMenu);
-
-        helpMenu.setText(resourceMap.getString("helpMenu.text"));
-        helpMenu.setName("helpMenu");
-
-        JMenuItem aboutMenuItem = new JMenuItem();
-        aboutMenuItem.setText(resourceMap.getString("aboutMenu.text"));
-        aboutMenuItem.setName("aboutMenuItem");
-        aboutMenuItem.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                showAboutBox();
-            }
-        });
-        helpMenu.add(aboutMenuItem);
-
-        menuBar.add(helpMenu);
-
-        return menuBar;
-    }
-
-
-    private void initTabbedContainer() {
-        tabbedPane = new JTabbedPane();
-        tabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        addTab("Welcome!", true);
-
-        tabbedPane.addChangeListener(new ChangeListener() {
-            public void stateChanged(ChangeEvent e) {
-                treePathLst.clear();
-            }
-        });
+    private JMenuBar createMenuBar() {
+        JMenuBar bar = new JMenuBar();
+        bar.add(menu("文件", WorkspaceIcon.DOCUMENT, WorkspaceIcon.NEW, WorkspaceIcon.OPEN, WorkspaceIcon.SAVE,
+                null, WorkspaceIcon.RENAME, WorkspaceIcon.CLOSE, null, WorkspaceIcon.EXIT));
+        bar.add(menu("编辑", WorkspaceIcon.RENAME, WorkspaceIcon.FORMAT, WorkspaceIcon.EXPAND, WorkspaceIcon.PASTE,
+                null, WorkspaceIcon.SEARCH, WorkspaceIcon.FIND_NODE, null, WorkspaceIcon.NEWLINE,
+                WorkspaceIcon.SLASH, WorkspaceIcon.CLEAR));
+        bar.add(menu("工具", WorkspaceIcon.TOOLS, WorkspaceIcon.LAYOUT, WorkspaceIcon.WINDOW, WorkspaceIcon.CONVERT));
+        bar.add(menu("帮助", WorkspaceIcon.HELP, WorkspaceIcon.ABOUT));
+        return bar;
     }
 
     public void receiveExternalText(String text) {
-        addTab("Sent", true);
+        addTab("传入文本", true);
         JTextArea ta = getTextArea();
         if (ta != null) {
             ta.setText(text);
@@ -423,11 +277,11 @@ public class MainView extends FrameView {
     }
 
     public void showAboutBox() {
+        JFrame mainFrame = MainApp.getApplication().getMainFrame();
         if (aboutBox == null) {
-            JFrame mainFrame = MainApp.getApplication().getMainFrame();
             aboutBox = new MainAboutBox(mainFrame);
-            aboutBox.setLocationRelativeTo(mainFrame);
         }
+        aboutBox.setLocationRelativeTo(mainFrame);
         MainApp.getApplication().show(aboutBox);
     }
 
@@ -446,58 +300,119 @@ public class MainView extends FrameView {
         }
     }
 
-    private JSplitPane newTabSplitPane(){
+    private JPanel sourcePanel(RSyntaxTextArea source) {
+        JPanel panel = new JPanel(new BorderLayout());
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(WorkspaceStyle.PAPER);
+        header.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, WorkspaceStyle.LINE),
+                BorderFactory.createEmptyBorder(0, UIScale.scale(12), 0, UIScale.scale(12))));
+        header.setPreferredSize(UIScale.scale(new Dimension(0, 33)));
+        JLabel title = new JLabel("源文本", WorkspaceIcon.CODE, JLabel.LEADING);
+        title.setIconTextGap(UIScale.scale(7));
+        title.setForeground(WorkspaceStyle.INK);
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
+        JLabel position = new JLabel("行 1  ·  列 1");
+        position.setForeground(WorkspaceStyle.MUTED);
+        position.setFont(position.getFont().deriveFont(position.getFont().getSize2D() - 1));
+        source.addCaretListener(e -> {
+            int offset = e.getDot();
+            Element lines = source.getDocument().getDefaultRootElement();
+            int row = lines.getElementIndex(offset);
+            int column = offset - lines.getElement(row).getStartOffset();
+            position.setText("行 " + (row + 1) + "  ·  列 " + (column + 1));
+        });
+        header.add(title, BorderLayout.WEST);
+        header.add(position, BorderLayout.EAST);
+        RTextScrollPane scroll = new RTextScrollPane(source);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setFoldIndicatorEnabled(true);
+        scroll.getGutter().setBackground(WorkspaceStyle.PAPER);
+        scroll.getGutter().setLineNumberColor(WorkspaceStyle.MUTED);
+        scroll.getGutter().setBorderColor(WorkspaceStyle.LINE);
+        scroll.getGutter().setFoldIndicatorForeground(WorkspaceStyle.MUTED);
+        panel.add(header, BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
+        panel.setMinimumSize(UIScale.scale(new Dimension(100, 75)));
+        return panel;
+    }
+
+    private void initializeDivider(JSplitPane split, double ratio) {
+        split.setBorder(BorderFactory.createEmptyBorder());
+        split.setContinuousLayout(true);
+        split.setResizeWeight(ratio);
+        split.addHierarchyListener(new HierarchyListener() {
+            @Override public void hierarchyChanged(HierarchyEvent e) {
+                if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0 || !split.isShowing()) return;
+                split.removeHierarchyListener(this);
+                // Nested panes acquire their final bounds after the document tab is shown.
+                SwingUtilities.invokeLater(() -> {
+                    if (!split.isShowing()) {
+                        split.addHierarchyListener(this);
+                        return;
+                    }
+                    split.getTopLevelAncestor().validate();
+                    if (split.getRightComponent() != null) split.setDividerLocation(ratio);
+                    split.validate();
+                });
+            }
+        });
+    }
+
+    private JSplitPane newTabSplitPane() {
         final EditorTab splitPane = new EditorTab(newTextArea(), newTree(), newTable());
-        splitPane.setDividerSize(7);
-        splitPane.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        splitPane.addComponentListener(new ComponentListener() {
-            public void componentResized(ComponentEvent e) {
-                 splitPane.setDividerLocation(0.4);
-            }
-            public void componentMoved(ComponentEvent e) {}
-            public void componentShown(ComponentEvent e) {}
-            public void componentHidden(ComponentEvent e) {}
-        });
-
         final RSyntaxTextArea textArea = splitPane.source;
-        textArea.setMargin(new Insets(8, 8, 8, 8));
-
-        RTextScrollPane sp = new RTextScrollPane(textArea);
-        sp.setFoldIndicatorEnabled(true);
-        splitPane.setLeftComponent(sp);
-
-        final JSplitPane rightSplitPane = new JSplitPane();
-        rightSplitPane.setDividerSize(7);
-        rightSplitPane.setBorder(BorderFactory.createEmptyBorder());
-        rightSplitPane.addComponentListener(new ComponentListener() {
-            public void componentResized(ComponentEvent e) {
-                rightSplitPane.setDividerLocation(0.667);
-            }
-            public void componentMoved(ComponentEvent e) {}
-            public void componentShown(ComponentEvent e) {}
-            public void componentHidden(ComponentEvent e) {}
-        });
+        textArea.setMargin(UIScale.scale(new Insets(8, 7, 8, 7)));
+        splitPane.setLeftComponent(sourcePanel(textArea));
 
         final JTree tree = splitPane.tree;
-
-        rightSplitPane.setLeftComponent(new JScrollPane(tree));
         final JTable table = splitPane.table;
-        rightSplitPane.setRightComponent(new JScrollPane(table));
-
+        JScrollPane treeScroll = new JScrollPane(tree);
+        JScrollPane fields = new JScrollPane(table);
+        treeScroll.setMinimumSize(UIScale.scale(new Dimension(72, 30)));
+        fields.setMinimumSize(UIScale.scale(new Dimension(60, 30)));
+        fields.getViewport().setBackground(Color.WHITE);
+        JSplitPane details = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScroll, fields);
+        initializeDivider(details, 0.62);
+        JToggleButton inspector = new JToggleButton(WorkspaceIcon.INSPECTOR, true);
+        WorkspaceStyle.toolButton(inspector, "显示字段表");
+        int dividerSize = details.getDividerSize();
+        inspector.addActionListener(new ActionListener() {
+            private double proportion = 0.62;
+            @Override public void actionPerformed(ActionEvent e) {
+                if (inspector.isSelected()) {
+                    details.setRightComponent(fields);
+                    details.setDividerSize(dividerSize);
+                    details.setDividerLocation(proportion);
+                } else {
+                    int width = details.getWidth() - dividerSize;
+                    if (width > 0) proportion = Math.max(0, Math.min(1, details.getDividerLocation() / (double) width));
+                    details.setRightComponent(null);
+                    details.setDividerSize(0);
+                }
+            }
+        });
         tree.addTreeSelectionListener(e -> treeSelection(tree, table));
         splitPane.link = new TreeSourceLink(textArea, tree, () -> {
             ((DefaultTableModel) table.getModel()).setRowCount(0);
             if (splitPane == selectedTab()) treePathLst.clear();
         });
         final JsonGraphPanel graph = new JsonGraphPanel(textArea);
-        splitPane.modes.addTab("树状", rightSplitPane);
-        splitPane.modes.addTab("图形", graph);
+        splitPane.modes.setBackground(WorkspaceStyle.PAPER);
+        splitPane.modes.setMinimumSize(UIScale.scale(new Dimension(145, 80)));
+        splitPane.modes.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        splitPane.modes.putClientProperty(FlatClientProperties.TABBED_PANE_TAB_HEIGHT, 32);
+        splitPane.modes.putClientProperty(FlatClientProperties.TABBED_PANE_TRAILING_COMPONENT, toolbarGroup(inspector));
+        splitPane.modes.addTab("树状", WorkspaceIcon.TREE, details);
+        splitPane.modes.addTab("图形", WorkspaceIcon.GRAPH, graph);
         splitPane.modes.addChangeListener(e -> {
             boolean graphMode = splitPane.modes.getSelectedComponent() == graph;
+            inspector.setVisible(!graphMode);
             splitPane.link.setActive(!graphMode);
             graph.setActive(graphMode);
         });
         splitPane.setRightComponent(splitPane.modes);
+        initializeDivider(splitPane, 0.42);
 
         // Ctrl/Cmd + 鼠标滚轮调节字体大小
         splitPane.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
@@ -528,11 +443,16 @@ public class MainView extends FrameView {
     }
 
     private RSyntaxTextArea newTextArea(){
-//        JTextArea textArea = new JTextArea();
-//        textArea.setAutoscrolls(true);
-////      textArea.getDocument().addUndoableEditListener(undoMg);
-//        textArea.addMouseListener(new TextAreaMouseListener());
-        RSyntaxTextArea textArea = new RSyntaxTextArea();
+        RSyntaxTextArea textArea = new RSyntaxTextArea() {
+            @Override public Color getForegroundForToken(Token token) {
+                if (token.type == Token.LITERAL_STRING_DOUBLE_QUOTE) {
+                    Token next = token.getNextToken();
+                    while (next != null && next.isWhitespace()) next = next.getNextToken();
+                    if (next != null && next.isPaintable() && next.isSingleChar(':')) return WorkspaceStyle.INK;
+                }
+                return super.getForegroundForToken(token);
+            }
+        };
         textArea.setFont(new Font("Monospaced", Font.PLAIN, DEFAULT_FONT_SIZE));
         textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT);
         textArea.setCodeFoldingEnabled(true);
@@ -540,16 +460,19 @@ public class MainView extends FrameView {
         textArea.setAutoscrolls(true);
 
         SyntaxScheme scheme = textArea.getSyntaxScheme();
-//        scheme.getStyle(Token.COMMENT_KEYWORD).foreground = Color.red;
-//      scheme.getStyle(Token.DATA_TYPE).foreground = Color.blue;
-        scheme.getStyle(Token.LITERAL_STRING_DOUBLE_QUOTE).foreground = Color.BLUE;
-        scheme.getStyle(Token.LITERAL_NUMBER_DECIMAL_INT).foreground = new Color(164, 0, 0);
-        scheme.getStyle(Token.LITERAL_NUMBER_FLOAT).foreground = new Color(164, 0, 0);
-        scheme.getStyle(Token.LITERAL_BOOLEAN).foreground = Color.RED;
-        scheme.getStyle(Token.OPERATOR).foreground = Color.BLACK;
-        textArea.revalidate();
-        textArea.addMouseListener(new TextAreaMouseListener());
-       
+        scheme.getStyle(Token.LITERAL_STRING_DOUBLE_QUOTE).foreground = WorkspaceStyle.TEAL;
+        scheme.getStyle(Token.LITERAL_NUMBER_DECIMAL_INT).foreground = WorkspaceStyle.AMBER;
+        scheme.getStyle(Token.LITERAL_NUMBER_FLOAT).foreground = WorkspaceStyle.AMBER;
+        scheme.getStyle(Token.LITERAL_BOOLEAN).foreground = WorkspaceStyle.VIOLET;
+        scheme.getStyle(Token.RESERVED_WORD).foreground = WorkspaceStyle.VIOLET;
+        scheme.getStyle(Token.OPERATOR).foreground = WorkspaceStyle.INK;
+        scheme.getStyle(Token.SEPARATOR).foreground = WorkspaceStyle.MUTED;
+        textArea.setForeground(WorkspaceStyle.INK);
+        textArea.setBackground(Color.WHITE);
+        textArea.setCurrentLineHighlightColor(WorkspaceStyle.PAPER);
+        textArea.setSelectionColor(WorkspaceStyle.SELECTION);
+        textArea.setCaretColor(WorkspaceStyle.ACCENT);
+        configureTextMenu(textArea);
         return textArea;
     }
 
@@ -559,19 +482,27 @@ public class MainView extends FrameView {
         JTree tree = new JTree(model);
         tree.setFont(new Font("Monospaced", Font.PLAIN, DEFAULT_FONT_SIZE));
         setNodeIcon(tree);
-        tree.addMouseListener(new TreeMouseListener(tree));
-        System.out.println("New HashCode : " + tree.hashCode());
+        tree.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 0));
+        installTreeMenu(tree);
         return tree;
     }
 
     private JTable newTable(){
-        String col[] ={"key","value"};
+        String[] col = {"键", "值"};
         DefaultTableModel tm = new DefaultTableModel();
         tm.setColumnCount(2);
         tm.setColumnIdentifiers(col);
-        JTable table = new JTable(tm);
+        JTable table = new JTable(tm) {
+            @Override public boolean getScrollableTracksViewportWidth() {
+                return getParent() instanceof JViewport && getPreferredSize().width <= getParent().getWidth();
+            }
+        };
         table.setFont(new Font("Monospaced", Font.PLAIN, DEFAULT_FONT_SIZE));
-        table.getTableHeader().setFont(new Font("Monospaced", Font.PLAIN, DEFAULT_FONT_SIZE));
+        table.setForeground(WorkspaceStyle.INK);
+        table.setRowHeight(UIScale.scale(23));
+        table.setShowHorizontalLines(true);
+        table.setGridColor(WorkspaceStyle.CHROME);
+        table.getTableHeader().setBackground(WorkspaceStyle.PAPER);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setAutoscrolls(true);
         table.setMinimumSize(new Dimension(160, 100));
@@ -591,7 +522,7 @@ public class MainView extends FrameView {
             data[i][0] = node.key;
             data[i][1] = node.summary;
         }
-        ((DefaultTableModel) table.getModel()).setDataVector(data, new String[]{"key", "value"});
+        ((DefaultTableModel) table.getModel()).setDataVector(data, new String[]{"键", "值"});
         TableColumn column0 = table.getColumnModel().getColumn(0);
         column0.setPreferredWidth(getPreferredWidthForColumn(table,column0));
         TableColumn column1 = table.getColumnModel().getColumn(1);
@@ -600,7 +531,7 @@ public class MainView extends FrameView {
 
     private int addTab(String tabName,boolean isSel){
         JSplitPane splitPane = newTabSplitPane();
-        tabbedPane.addTab(tabName, splitPane);
+        tabbedPane.addTab(tabName, WorkspaceIcon.DOCUMENT, splitPane);
         int newIndex = tabbedPane.getTabCount() - 1;
         if(isSel){
             tabbedPane.setSelectedIndex(newIndex);
@@ -684,21 +615,18 @@ public class MainView extends FrameView {
     }
 
     private void setNodeIcon(JTree tree) {
-        final Icon object = new ImageIcon(getClass().getResource("resources/o.gif"));
-        final Icon array = new ImageIcon(getClass().getResource("resources/a.gif"));
-        final Icon number = new ImageIcon(getClass().getResource("resources/n.gif"));
-        final Icon nil = new ImageIcon(getClass().getResource("resources/k.gif"));
-        final Icon primitive = new ImageIcon(getClass().getResource("resources/v.gif"));
         tree.setCellRenderer(new DefaultTreeCellRenderer() {
             @Override public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected,
                     boolean expanded, boolean leaf, int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
                 String label = value.toString();
-                if (label.startsWith(Kit.sObj)) setIcon(object);
-                else if (label.startsWith(Kit.sArr)) setIcon(array);
-                else if (label.startsWith(Kit.sNum)) setIcon(number);
-                else if (label.startsWith(Kit.sNull)) setIcon(nil);
-                else setIcon(primitive);
+                if (label.startsWith(Kit.sObj)) setIcon(WorkspaceIcon.OBJECT);
+                else if (label.startsWith(Kit.sArr)) setIcon(WorkspaceIcon.ARRAY);
+                else if (label.startsWith(Kit.sNum)) setIcon(WorkspaceIcon.NUMBER);
+                else if (label.startsWith(Kit.sNull)) setIcon(WorkspaceIcon.NULL);
+                else if (label.startsWith(Kit.sBool)) setIcon(WorkspaceIcon.BOOLEAN);
+                else setIcon(WorkspaceIcon.STRING);
+                setIconTextGap(UIScale.scale(6));
                 setText(label.substring(2));
                 return this;
             }
@@ -816,19 +744,22 @@ public class MainView extends FrameView {
         final  JDialog openDlg = new JDialog(getFrame());
         openDlg.setTitle(title);
         openDlg.setModal(false);
-        openDlg.setSize(500,70);
+        openDlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         openDlg.setResizable(false);
         java.awt.Container pane =  openDlg.getContentPane();
         FlowLayout layout = new FlowLayout(FlowLayout.LEFT);
         pane.setLayout(layout);
-        JButton btnFind = new JButton("查找");
+        JButton btnFind = new JButton("查找", WorkspaceIcon.SEARCH);
         JButton btnNext = new JButton("下一个");
         JButton btnPrev = new JButton("上一个");
-        final JTextField textFieldFind = new JTextField(50);
+        final JTextField textFieldFind = new JTextField(22);
         pane.add(textFieldFind);
         pane.add(btnFind);
         pane.add(btnPrev);
         pane.add(btnNext);
+        openDlg.getRootPane().setDefaultButton(btnFind);
+        openDlg.pack();
+        openDlg.setLocationRelativeTo(getFrame());
         //从头开始查找
         btnFind.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -980,56 +911,38 @@ public class MainView extends FrameView {
         }
     }
 
-    private class TreeMouseListener implements MouseListener {
-        private JTree tree;
-        public TreeMouseListener(JTree tree){
-            this.tree = tree;
-        }
+    private void installTreeMenu(JTree tree) {
+        tree.addMouseListener(new TreePopupMouseListener(tree, (path, point) ->
+                showTreeMenu(tree, path, point.x, point.y)));
+        tree.registerKeyboardAction(e -> {
+            TreePath path = tree.getSelectionPath();
+            Rectangle row = path == null ? null : tree.getPathBounds(path);
+            if (row != null) showTreeMenu(tree, path, row.x, row.y + row.height);
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK), JTree.WHEN_FOCUSED);
+    }
 
-        public void mouseClicked(MouseEvent e) {}
+    private void showTreeMenu(JTree tree, TreePath path, int x, int y) {
+        Object node = path.getLastPathComponent();
+        if (!(node instanceof JsonSourceTree.Node)) return;
+        tree.setSelectionPath(path);
+        JPopupMenu menu = new JPopupMenu();
+        copyItem(menu, "复制键名", WorkspaceIcon.KEY, 1, node);
+        copyItem(menu, "复制值", WorkspaceIcon.VALUE, 2, node);
+        copyItem(menu, "复制键值对", WorkspaceIcon.PAIR, 3, node);
+        menu.addSeparator();
+        copyItem(menu, "复制节点 JSON", WorkspaceIcon.CODE, 6, path);
+        copyItem(menu, "复制格式化 JSON", WorkspaceIcon.FORMAT, 7, path);
+        menu.addSeparator();
+        copyItem(menu, "复制路径", WorkspaceIcon.PATH, 4, path);
+        copyItem(menu, "复制同路径的值", WorkspaceIcon.RELATED, 5, node);
+        copyItem(menu, "复制为 Map 条目", WorkspaceIcon.CONVERT, 8, node);
+        menu.show(tree, x, y);
+    }
 
-        public void mousePressed(MouseEvent e) { checkPopup(e); }
-
-        public void mouseReleased(MouseEvent e) { checkPopup(e); }
-
-        private void checkPopup(MouseEvent e) {
-            if (!SwingUtilities.isRightMouseButton(e)) return;
-            TreePath path = tree.getPathForLocation(e.getX(), e.getY());
-            if (path == null) return;
-            tree.setSelectionPath(path);
-            DefaultMutableTreeNode selNode = (DefaultMutableTreeNode) tree.getLastSelectedPathComponent();
-            JPopupMenu popMenu = new JPopupMenu();
-            JMenuItem copyValue = new JMenuItem("复制 键值");
-            JMenuItem copyKey = new JMenuItem("复制 键名");
-            JMenuItem copyPath = new JMenuItem("复制 路径");
-            JMenuItem copyKeyValue = new JMenuItem("复制 键名键值");
-            JMenuItem copyNode = new JMenuItem("复制 节点内容");
-            JMenuItem copyPathAllVal = new JMenuItem("复制 同路径键值");
-            JMenuItem copySingleNodeString = new JMenuItem("复制 MAP式内容");
-            JMenuItem copyNodeFormat = new JMenuItem("复制 节点内容带格式");
-
-            popMenu.add(copyKey);
-            popMenu.add(copyValue);
-            popMenu.add(copyPath);
-            popMenu.add(copyNode);
-            popMenu.add(copyKeyValue);
-            popMenu.add(copySingleNodeString);
-            popMenu.add(copyPathAllVal);
-            popMenu.add(copyNodeFormat);
-            copyKey.addActionListener(new TreeNodeMenuItemActionListener(1, selNode));
-            copyValue.addActionListener(new TreeNodeMenuItemActionListener(2, selNode));
-            copyKeyValue.addActionListener(new TreeNodeMenuItemActionListener(3, selNode));
-            copyPath.addActionListener(new TreeNodeMenuItemActionListener(4, path));
-            copyPathAllVal.addActionListener(new TreeNodeMenuItemActionListener(5,selNode));
-            copyNode.addActionListener(new TreeNodeMenuItemActionListener(6,path));
-            copyNodeFormat.addActionListener(new TreeNodeMenuItemActionListener(7,path));
-            copySingleNodeString.addActionListener(new TreeNodeMenuItemActionListener(8,selNode));
-            popMenu.show(e.getComponent(), e.getX(), e.getY());
-        }
-
-        public void mouseEntered(MouseEvent e) {}
-
-        public void mouseExited(MouseEvent e) {}
+    private void copyItem(JPopupMenu menu, String label, WorkspaceIcon icon, int operation, Object target) {
+        JMenuItem item = new JMenuItem(label, icon);
+        item.addActionListener(new TreeNodeMenuItemActionListener(operation, target));
+        menu.add(item);
     }
 
     private class TreeNodeMenuItemActionListener implements ActionListener{
@@ -1140,68 +1053,46 @@ public class MainView extends FrameView {
         }
     }//end TreeNodeCopyActionListener
 
-    private class TextAreaMouseListener implements MouseListener{
-
-        public void mouseClicked(MouseEvent e) {}
-
-        public void mousePressed(MouseEvent e) { checkPopup(e); }
-
-        public void mouseReleased(MouseEvent e) { checkPopup(e); }
-
-        private void checkPopup(MouseEvent e) {
-            if (!SwingUtilities.isRightMouseButton(e)) return;
-            JPopupMenu popMenu = new JPopupMenu();
-            JMenuItem mtCopy = new JMenuItem(resourceMap.getString("mtCopy.text"));
-            JMenuItem mtPaste = new JMenuItem(resourceMap.getString("mtPaste.text"));
-            JMenuItem mtSelAll = new JMenuItem(resourceMap.getString("mtSelAll.text"));
-            JMenuItem mtClean = new JMenuItem(resourceMap.getString("mtClean.text"));
-
-            popMenu.add(mtCopy);
-            popMenu.add(mtPaste);
-            popMenu.add(mtSelAll);
-            popMenu.add(mtClean);
-            JTextArea ta = getTextArea();
-            if(ta.getSelectedText() == null || ta.getSelectedText().length()==0){
-                mtCopy.setEnabled(false);
-            }
-
-            mtCopy.addActionListener(new TextAreaMenuItemActionListener(1));
-            mtPaste.addActionListener(new TextAreaMenuItemActionListener(2));
-            mtSelAll.addActionListener(new TextAreaMenuItemActionListener(3));
-            mtClean.addActionListener(new TextAreaMenuItemActionListener(4));
-            popMenu.show(e.getComponent(), e.getX(), e.getY());
+    private void configureTextMenu(RSyntaxTextArea source) {
+        // Keep RSyntaxTextArea's actions so undo, selection and folding still control enablement.
+        JPopupMenu menu = source.getPopupMenu();
+        for (Component component : menu.getComponents()) {
+            if (component instanceof JMenu) {
+                JMenu folds = (JMenu) component;
+                folds.setText("代码折叠");
+                folds.setIcon(WorkspaceIcon.FOLD);
+                for (Component child : folds.getMenuComponents())
+                    if (child instanceof JMenuItem) styleTextAction((JMenuItem) child);
+            } else if (component instanceof JMenuItem) styleTextAction((JMenuItem) component);
         }
-
-        public void mouseEntered(MouseEvent e) {}
-
-        public void mouseExited(MouseEvent e) {}
-
+        // The editor expects its folding submenu to remain last.
+        int beforeFolding = menu.getComponentCount() - 1;
+        menu.insert(new JMenuItem(commands.get(WorkspaceIcon.PASTE)), beforeFolding);
+        menu.insert(new JMenuItem(commands.get(WorkspaceIcon.CLEAR)), beforeFolding + 1);
     }
 
-    private class TextAreaMenuItemActionListener implements ActionListener{
-        private int optType;
-        private String str;
-        /**
-         * optType 1:复制;2:粘帖;3:全选;4:清空
-         * @param optType
-         */
-        public TextAreaMenuItemActionListener(int optType){
-            this.optType = optType;
+    private void styleTextAction(JMenuItem item) {
+        Action action = item.getAction();
+        if (action == null) return;
+        String text;
+        WorkspaceIcon icon;
+        switch (action.getClass().getSimpleName()) {
+            case "UndoAction": text = "撤销"; icon = WorkspaceIcon.UNDO; break;
+            case "RedoAction": text = "重做"; icon = WorkspaceIcon.REDO; break;
+            case "CutAction": text = "剪切"; icon = WorkspaceIcon.CUT; break;
+            case "CopyAction": text = "复制"; icon = WorkspaceIcon.COPY; break;
+            case "PasteAction": text = "粘贴"; icon = WorkspaceIcon.PASTE; break;
+            case "DeleteNextCharAction": text = "删除"; icon = WorkspaceIcon.DELETE; break;
+            case "SelectAllAction": text = "全选"; icon = WorkspaceIcon.SELECT_ALL; break;
+            case "ToggleCurrentFoldAction": text = "切换当前折叠"; icon = WorkspaceIcon.FOLD; break;
+            case "CollapseAllCommentFoldsAction": text = "折叠注释"; icon = WorkspaceIcon.FOLD; break;
+            case "CollapseAllFoldsAction": text = "全部折叠"; icon = WorkspaceIcon.COLLAPSE_ALL; break;
+            case "ExpandAllFoldsAction": text = "全部展开"; icon = WorkspaceIcon.EXPAND_ALL; break;
+            default: return;
         }
-        public void actionPerformed(ActionEvent e) {
-            if(optType==1){
-                getTextArea().copy();
-            }else if(optType==2){
-                getTextArea().paste();
-                formatJson();
-            }else if(optType==3){
-                getTextArea().selectAll();
-            }else if(optType==4){
-                getTextArea().setText("");
-            }
-        }
-    }//end TreeNodeCopyActionListener
-
+        item.setText(text);
+        item.setIcon(icon);
+    }
 
     private void chooseFile(int mode) {
         EditorTab tab = selectedTab();
@@ -1223,6 +1114,11 @@ public class MainView extends FrameView {
                 formatSource(tab, false);
             } else {
                 tab.file.write(selected, tab.source.getText());
+            }
+            int index = tabbedPane.indexOfComponent(tab);
+            if (index >= 0) {
+                tabbedPane.setTitleAt(index, selected.getName());
+                tabbedPane.setToolTipTextAt(index, selected.getAbsolutePath());
             }
         } catch (IOException ex) {
             showMessageDialog(opening ? "打开文件失败" : "保存文件失败", ex.getMessage());

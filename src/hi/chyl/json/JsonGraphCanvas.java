@@ -1,5 +1,6 @@
 package hi.chyl.json;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -11,6 +12,7 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.CubicCurve2D;
@@ -25,38 +27,43 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.JPanel;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
+import javax.swing.ToolTipManager;
 import javax.swing.UIManager;
 
 final class JsonGraphCanvas extends JPanel {
     private static final int WIDTH = 222, HEADER = 34, ROW = 27, GAP_X = 68, GAP_Y = 24, PAD = 24;
     private static final int FOOTER = 16, MIN_WIDTH = 150;
-    private static final Color PAPER = new Color(246, 248, 251), INK = new Color(39, 49, 67),
-            BORDER = new Color(201, 212, 225), BLUE = new Color(49, 89, 162),
-            TEAL = new Color(27, 114, 104), SELECTED = new Color(221, 235, 255);
+    private static final Color PAPER = WorkspaceStyle.PAPER, INK = WorkspaceStyle.INK,
+            BORDER = WorkspaceStyle.LINE, ACCENT = WorkspaceStyle.ACCENT, TEAL = WorkspaceStyle.TEAL,
+            SELECTED = WorkspaceStyle.SELECTION, OBJECT_HEADER = new Color(0xF0EFFA),
+            ARRAY_HEADER = new Color(0xE5F3EF), CONNECTOR = new Color(0x959BB9);
 
     private static final class Card {
         final GraphNode node;
         final Card parent;
         final String path;
         final List<GraphNode> rows;
-        final Rectangle bounds;
+        final List<Card> children = new ArrayList<>();
+        final Rectangle bounds = new Rectangle();
+        boolean collapsed;
         int firstRow;
 
-        Card(GraphNode node, Card parent, int x, int y) {
+        Card(GraphNode node, Card parent) {
             this.node = node;
             this.parent = parent;
             String segment = node.key == null ? String.valueOf(node.index) : node.key;
             path = parent == null ? "" : parent.path + "/" + segment.replace("~", "~0").replace("/", "~1");
             rows = node.children();
-            bounds = new Rectangle(x, y, WIDTH, HEADER + ROW * rowCount() + FOOTER);
         }
 
         int rowCount() { return node.isContainer() ? rows.size() : 1; }
 
         int visibleRows() {
-            return Math.min(rowCount(), (bounds.height - HEADER - FOOTER) / ROW);
+            return collapsed ? 0 : Math.min(rowCount(), (bounds.height - HEADER - FOOTER) / ROW);
         }
 
         int minHeight() { return HEADER + FOOTER + (rowCount() == 0 ? 0 : ROW); }
@@ -65,10 +72,14 @@ final class JsonGraphCanvas extends JPanel {
 
         int right() { return bounds.x + bounds.width; }
 
-        boolean inGrip(Point p) { return p.x >= right() - FOOTER && p.y >= bottom() - FOOTER; }
+        boolean inDisclosure(Point p) {
+            return node.isContainer() && p.y < bounds.y + HEADER && p.x >= right() - 30;
+        }
+
+        boolean inGrip(Point p) { return !collapsed && p.x >= right() - FOOTER && p.y >= bottom() - FOOTER; }
 
         boolean inPager(Point p) {
-            return visibleRows() < rowCount() && p.y >= bottom() - FOOTER && p.x < bounds.x + 48;
+            return !collapsed && visibleRows() < rowCount() && p.y >= bottom() - FOOTER && p.x < bounds.x + 48;
         }
 
         GraphNode nodeAt(Point p) {
@@ -85,12 +96,15 @@ final class JsonGraphCanvas extends JPanel {
     }
 
     private final Map<String, Layout> layouts = new HashMap<>();
+    private final Set<String> collapsedPaths = new HashSet<>();
+    private final Map<GraphNode, Card> cardByNode = new HashMap<>();
     private final List<Card> cards = new ArrayList<>();
     private GraphNode root;
     private long topLayer;
     private Card movingCard;
     private Rectangle initialBounds;
     private boolean resizing;
+    private final Consumer<GraphNode> select;
     private final Consumer<GraphNode> edit;
     private final BiConsumer<GraphNode, GraphNode> move;
     private Dimension diagram = new Dimension();
@@ -99,7 +113,8 @@ final class JsonGraphCanvas extends JPanel {
     private Point pressed, dragPoint, panStart, viewStart;
     private String message;
 
-    JsonGraphCanvas(Consumer<GraphNode> edit, BiConsumer<GraphNode, GraphNode> move) {
+    JsonGraphCanvas(Consumer<GraphNode> select, Consumer<GraphNode> edit, BiConsumer<GraphNode, GraphNode> move) {
+        this.select = select;
         this.edit = edit;
         this.move = move;
         setFont(UIManager.getFont("Label.font").deriveFont(13f));
@@ -107,19 +122,30 @@ final class JsonGraphCanvas extends JPanel {
         setBackground(PAPER);
         setFocusable(true);
         setAutoscrolls(true);
+        ToolTipManager.sharedInstance().registerComponent(this);
         getAccessibleContext().setAccessibleName("JSON 节点图");
         MouseAdapter mouse = new MouseAdapter() {
+            private boolean popupOnPress;
+
             @Override public void mousePressed(MouseEvent e) {
+                popupOnPress = e.isPopupTrigger() || isControlClick(e);
+                if (popupOnPress) {
+                    openContextMenu(e);
+                    return;
+                }
                 if (!SwingUtilities.isLeftMouseButton(e)) return;
                 requestFocusInWindow();
                 pressed = e.getPoint();
                 Point p = diagramPoint(pressed);
                 Card card = cardAt(p);
                 selected = card == null ? null : card.nodeAt(p);
+                if (card != null && !card.inGrip(p) && !card.inPager(p)) select.accept(selected);
                 if (card == null) {
                     panStart = SwingUtilities.convertPoint(JsonGraphCanvas.this, pressed, viewport());
                     viewStart = viewport().getViewPosition();
                     setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                } else if (card.inDisclosure(p)) {
+                    pressed = null;
                 } else if (card.inGrip(p) || p.y < card.bounds.y + HEADER) {
                     movingCard = card;
                     initialBounds = new Rectangle(card.bounds);
@@ -174,7 +200,8 @@ final class JsonGraphCanvas extends JPanel {
                 Card card = cardAt(p);
                 int cursor = Cursor.DEFAULT_CURSOR;
                 if (card != null) {
-                    if (card.inGrip(p)) cursor = Cursor.SE_RESIZE_CURSOR;
+                    if (card.inDisclosure(p)) cursor = Cursor.HAND_CURSOR;
+                    else if (card.inGrip(p)) cursor = Cursor.SE_RESIZE_CURSOR;
                     else if (p.y < card.bounds.y + HEADER) cursor = Cursor.MOVE_CURSOR;
                     else if (card.inPager(p)) cursor = Cursor.HAND_CURSOR;
                 }
@@ -182,6 +209,14 @@ final class JsonGraphCanvas extends JPanel {
             }
 
             @Override public void mouseReleased(MouseEvent e) {
+                if (popupOnPress) {
+                    popupOnPress = false;
+                    return;
+                }
+                if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e) || isControlClick(e)) {
+                    openContextMenu(e);
+                    return;
+                }
                 GraphNode from = dragged;
                 GraphNode to = containerAt(e.getPoint());
                 clearGesture();
@@ -190,36 +225,117 @@ final class JsonGraphCanvas extends JPanel {
             }
 
             @Override public void mouseClicked(MouseEvent e) {
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    Point p = diagramPoint(e.getPoint());
-                    Card card = cardAt(p);
-                    if (card != null && !card.inGrip(p) && !card.inPager(p)) edit.accept(card.nodeAt(p));
-                }
+                if (!SwingUtilities.isLeftMouseButton(e) || isControlClick(e)) return;
+                Point p = diagramPoint(e.getPoint());
+                Card card = cardAt(p);
+                if (card == null || card.inGrip(p) || card.inPager(p)) return;
+                if (card.inDisclosure(p)) {
+                    if (e.getClickCount() == 1) toggleFold(card);
+                } else if (e.getClickCount() == 2) edit.accept(card.nodeAt(p));
             }
         };
         addMouseListener(mouse);
         addMouseMotionListener(mouse);
         registerKeyboardAction(e -> { if (selected != null) edit.accept(selected); },
                 javax.swing.KeyStroke.getKeyStroke("ENTER"), WHEN_FOCUSED);
+        registerKeyboardAction(e -> {
+            if (selected != null && selected.isContainer()) toggleFold(cardByNode.get(selected));
+        }, javax.swing.KeyStroke.getKeyStroke("SPACE"), WHEN_FOCUSED);
+        registerKeyboardAction(e -> {
+            Rectangle view = getVisibleRect();
+            showContextMenu(selected, selected != null && selected.parent != null, view.x + PAD, view.y + PAD);
+        }, javax.swing.KeyStroke.getKeyStroke("shift F10"), WHEN_FOCUSED);
+    }
+
+    private boolean isControlClick(MouseEvent e) {
+        return SystemInfo.isMacOS && e.isControlDown() && SwingUtilities.isLeftMouseButton(e);
+    }
+
+    @Override public String getToolTipText(MouseEvent event) {
+        Point point = diagramPoint(event.getPoint());
+        Card card = cardAt(point);
+        return card != null && card.inDisclosure(point) ? (card.collapsed ? "展开" : "折叠") : null;
+    }
+
+    private void openContextMenu(MouseEvent event) {
+        Point point = diagramPoint(event.getPoint());
+        Card card = cardAt(point);
+        clearGesture();
+        selected = card == null ? null : card.nodeAt(point);
+        if (selected != null) select.accept(selected);
+        requestFocusInWindow();
+        repaint();
+        showContextMenu(selected, card != null && selected != card.node, event.getX(), event.getY());
+    }
+
+    private void showContextMenu(GraphNode node, boolean fieldRow, int x, int y) {
+        if (root == null) return;
+        JPopupMenu menu = new JPopupMenu();
+        if (node != null) {
+            JMenuItem editItem = new JMenuItem("编辑节点…", WorkspaceIcon.RENAME);
+            editItem.addActionListener(e -> { if (selected == node) edit.accept(node); });
+            menu.add(editItem);
+            if (node.isContainer()) {
+                Card card = cardByNode.get(node);
+                JMenuItem fold = new JMenuItem(card.collapsed ? "展开" : "折叠", WorkspaceIcon.FOLD);
+                fold.addActionListener(e -> { if (selected == node) toggleFold(card); });
+                menu.add(fold);
+            }
+            if (fieldRow) {
+                menu.addSeparator();
+                GraphNode snapshot = root;
+                addFieldCopyItems(menu, node, text -> {
+                    if (root == snapshot) getToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+                });
+                menu.addSeparator();
+            }
+        }
+        JMenuItem arrange = new JMenuItem("自动排列", WorkspaceIcon.ARRANGE);
+        arrange.addActionListener(e -> resetLayout());
+        menu.add(arrange);
+        menu.show(this, x, y);
+    }
+
+    static void addFieldCopyItems(JPopupMenu menu, GraphNode field, Consumer<String> copy) {
+        String key = field.key == null ? field.label() : field.key;
+        JMenuItem copyKey = menu.add(new JMenuItem("复制键名", WorkspaceIcon.KEY));
+        copyKey.addActionListener(e -> copy.accept(key));
+        JMenuItem copyValue = menu.add(new JMenuItem("复制值", WorkspaceIcon.VALUE));
+        copyValue.addActionListener(e -> copy.accept(field.value.isJsonPrimitive()
+                ? field.value.getAsString() : field.value.toString()));
+        JMenuItem copyPair = menu.add(new JMenuItem("复制键值对", WorkspaceIcon.PAIR));
+        copyPair.addActionListener(e -> copy.accept(GraphNode.JSON.toJson(key) + ": " + field.value));
     }
 
     void display(GraphNode root, String message) {
         this.root = root;
         this.message = message;
-        cards.clear();
+        cardByNode.clear();
         selected = null;
         clearGesture();
         if (root != null) {
-            place(root, null, PAD, PAD);
             Set<String> paths = new HashSet<>();
-            for (Card card : cards) {
-                paths.add(card.path);
-                Layout saved = layouts.get(card.path);
-                if (saved == null) continue;
-                if (saved.location != null) card.bounds.setLocation(saved.location);
-                if (saved.size != null) card.bounds.setSize(saved.size.width, Math.max(card.minHeight(), saved.size.height));
-            }
+            buildCards(root, null, paths);
             layouts.keySet().retainAll(paths);
+            collapsedPaths.retainAll(paths);
+        }
+        layoutVisibleCards();
+    }
+
+    private Card buildCards(GraphNode node, Card parent, Set<String> paths) {
+        Card card = new Card(node, parent);
+        cardByNode.put(node, card);
+        paths.add(card.path);
+        for (GraphNode row : card.rows) {
+            if (row.isContainer()) card.children.add(buildCards(row, card, paths));
+        }
+        return card;
+    }
+
+    private void layoutVisibleCards() {
+        cards.clear();
+        if (root != null) {
+            place(cardByNode.get(root), PAD, PAD);
             if (!layouts.isEmpty()) {
                 cards.sort(Comparator.comparingLong(card -> {
                     Layout saved = layouts.get(card.path);
@@ -231,10 +347,17 @@ final class JsonGraphCanvas extends JPanel {
         repaint();
     }
 
+    private void toggleFold(Card card) {
+        if (card.collapsed) collapsedPaths.remove(card.path);
+        else collapsedPaths.add(card.path);
+        selected = card.node;
+        layoutVisibleCards();
+    }
+
     void resetLayout() {
         layouts.clear();
         topLayer = 0;
-        display(root, message);
+        layoutVisibleCards();
         setViewPosition(0, 0);
     }
 
@@ -254,14 +377,67 @@ final class JsonGraphCanvas extends JPanel {
         setCursor(Cursor.getDefaultCursor());
     }
 
-    private int place(GraphNode node, Card parent, int x, int y) {
-        Card card = new Card(node, parent, x, y);
+    private int place(Card card, int x, int y) {
         cards.add(card);
+        Layout saved = layouts.get(card.path);
+        Dimension size = saved == null ? null : saved.size;
+        int height = size == null ? HEADER + ROW * card.rowCount() + FOOTER : Math.max(card.minHeight(), size.height);
+        card.collapsed = collapsedPaths.contains(card.path);
+        card.bounds.setBounds(x, y, size == null ? WIDTH : size.width, card.collapsed ? HEADER : height);
+        if (saved != null && saved.location != null) card.bounds.setLocation(saved.location);
+        if (card.collapsed) return y + HEADER;
+
+        card.firstRow = Math.min(card.firstRow, card.rowCount() - card.visibleRows());
         int childY = y;
-        for (GraphNode row : card.rows) {
-            if (row.isContainer()) childY = place(row, card, x + WIDTH + GAP_X, childY) + GAP_Y;
+        for (Card child : card.children) {
+            childY = place(child, x + WIDTH + GAP_X, childY) + GAP_Y;
         }
-        return Math.max(card.bottom(), childY - GAP_Y);
+        return Math.max(y + height, childY - GAP_Y);
+    }
+
+    void reveal(int[] indexPath) {
+        if (root == null) return;
+        GraphNode node = root;
+        boolean expanded = false;
+        for (int index : indexPath) {
+            Card parent = cardByNode.get(node);
+            expanded |= collapsedPaths.remove(parent.path);
+            node = parent.rows.get(index);
+        }
+        if (expanded) layoutVisibleCards();
+        selected = node;
+        Card card = cardByNode.get(node);
+        int y, height;
+        if (card != null) {
+            y = card.bounds.y;
+            height = HEADER;
+        } else {
+            card = cardByNode.get(node.parent);
+            int lastOffset = card.visibleRows() - 1;
+            card.firstRow = Math.max(node.index - lastOffset, Math.min(node.index, card.firstRow));
+            y = card.bounds.y + HEADER + (node.index - card.firstRow) * ROW;
+            height = ROW;
+        }
+        Rectangle row = new Rectangle(card.bounds.x, y, card.bounds.width, height);
+        // A manually moved card can cover the requested row.
+        for (int i = cards.size() - 1; !layouts.isEmpty() && cards.get(i) != card; i--) {
+            if (row.intersects(cards.get(i).bounds)) {
+                layouts.computeIfAbsent(card.path, key -> new Layout()).layer = ++topLayer;
+                cards.remove(card);
+                cards.add(card);
+                break;
+            }
+        }
+        if (getParent() instanceof JViewport) {
+            JViewport vp = viewport();
+            if (expanded) vp.doLayout();
+            Rectangle target = new Rectangle((int) Math.floor(row.x * zoom), (int) Math.floor(row.y * zoom),
+                    (int) Math.ceil(row.width * zoom), (int) Math.ceil(row.height * zoom));
+            target.grow(4, 4);
+            target.width = Math.min(target.width, vp.getExtentSize().width);
+            scrollRectToVisible(target);
+        }
+        repaint();
     }
 
     double zoom() { return zoom; }
@@ -326,7 +502,13 @@ final class JsonGraphCanvas extends JPanel {
             }
             g.scale(zoom, zoom);
             Rectangle clip = g.getClipBounds();
-            g.setColor(new Color(146, 169, 199));
+            int spacing = zoom < 0.75 ? 44 : 22;
+            g.setColor(BORDER);
+            for (int y = clip.y - Math.floorMod(clip.y, spacing); y < clip.y + clip.height; y += spacing) {
+                for (int x = clip.x - Math.floorMod(clip.x, spacing); x < clip.x + clip.width; x += spacing)
+                    g.fillRect(x, y, 1, 1);
+            }
+            g.setColor(CONNECTOR);
             g.setStroke(new BasicStroke(1.5f));
             for (Card card : cards) {
                 if (card.parent == null) continue;
@@ -347,7 +529,7 @@ final class JsonGraphCanvas extends JPanel {
                 if (clip.intersects(card.bounds)) drawCard(g, card, clip);
             }
             if (dragged != null) {
-                g.setColor(BLUE);
+                g.setColor(ACCENT);
                 g.drawLine((int) (pressed.x / zoom), (int) (pressed.y / zoom),
                         (int) (dragPoint.x / zoom), (int) (dragPoint.y / zoom));
             }
@@ -359,17 +541,28 @@ final class JsonGraphCanvas extends JPanel {
     private void drawCard(Graphics2D g, Card card, Rectangle clip) {
         int x = card.bounds.x, y = card.bounds.y, width = card.bounds.width;
         GraphNode node = card.node;
-        Color accent = node.value.isJsonArray() ? TEAL : BLUE;
+        Color accent = node.value.isJsonArray() ? TEAL : ACCENT;
         RoundRectangle2D shape = new RoundRectangle2D.Float(x, y, width, card.bounds.height, 12, 12);
         g.setColor(Color.WHITE);
         g.fill(shape);
-        g.setColor(node == selected ? SELECTED : new Color(232, 238, 247));
+        g.setColor(node == selected ? SELECTED : (node.value.isJsonArray() ? ARRAY_HEADER : OBJECT_HEADER));
         g.fillRoundRect(x, y, width, HEADER, 12, 12);
-        g.fillRect(x, y + HEADER / 2, width, HEADER / 2);
+        if (!card.collapsed) g.fillRect(x, y + HEADER / 2, width, HEADER / 2);
         g.setFont(getFont().deriveFont(Font.BOLD));
-        drawText(g, node.label(), x + 12, y + 22, width - 84, INK);
-        String type = node.value.isJsonObject() ? "对象 {}" : node.value.isJsonArray() ? "数组 []" : "值";
-        drawText(g, type, x + width - 62, y + 22, 55, accent);
+        String type = node.value.isJsonObject() ? "对象" : node.value.isJsonArray() ? "数组" : "值";
+        if (card.collapsed) type += " · " + card.rows.size();
+        int typeWidth = g.getFontMetrics().stringWidth(type);
+        int typeRight = x + width - (node.isContainer() ? 32 : 12);
+        drawText(g, node.label(), x + 12, y + 22, typeRight - typeWidth - x - 20, INK);
+        drawText(g, type, typeRight - typeWidth, y + 22, typeWidth, accent);
+        if (node.isContainer()) {
+            int cx = x + width - 15, cy = y + HEADER / 2;
+            g.setColor(accent);
+            g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            if (card.collapsed) g.drawPolyline(new int[]{cx - 2, cx + 2, cx - 2}, new int[]{cy - 4, cy, cy + 4}, 3);
+            else g.drawPolyline(new int[]{cx - 4, cx, cx + 4}, new int[]{cy - 2, cy + 2, cy - 2}, 3);
+            g.setStroke(new BasicStroke(1));
+        }
         g.setFont(getFont());
         if (!node.isContainer()) drawText(g, node.summary(), x + 12, y + HEADER + 18, width - 24, TEAL);
         int first = Math.max(0, (clip.y - y - HEADER) / ROW);
@@ -385,17 +578,18 @@ final class JsonGraphCanvas extends JPanel {
             g.setColor(BORDER);
             g.drawLine(x, rowY, x + width, rowY);
             drawText(g, row.label(), x + 12, rowY + 18, divider - 20, INK);
-            drawText(g, row.summary(), x + divider + 8, rowY + 18, width - divider - 24, row.isContainer() ? BLUE : TEAL);
+            drawText(g, row.summary(), x + divider + 8, rowY + 18, width - divider - 24, row.isContainer() ? ACCENT : TEAL);
             if (row.isContainer()) {
-                g.setColor(BLUE);
+                g.setColor(ACCENT);
                 g.fillOval(x + width - 4, rowY + ROW / 2 - 3, 6, 6);
             }
         }
-        g.setColor(node == target || node == selected ? BLUE : BORDER);
+        g.setColor(node == target || node == selected ? ACCENT : BORDER);
         g.setStroke(new BasicStroke(node == target ? 3 : 1));
         g.draw(shape);
         g.setStroke(new BasicStroke(1));
-        g.setColor(BLUE);
+        if (card.collapsed) return;
+        g.setColor(ACCENT);
         int right = card.right(), bottom = card.bottom();
         g.drawLine(right - 12, bottom - 4, right - 4, bottom - 12);
         g.drawLine(right - 8, bottom - 4, right - 4, bottom - 8);

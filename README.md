@@ -6,11 +6,18 @@ HiJson 是一个本地 JSON 查看与编辑工具，支持 Windows 和 macOS。�
 
 | 平台 | 下载 | 启动方式 |
 | --- | --- | --- |
-| Windows x64 | [HiJson-Windows-x64.zip](https://github.com/muxuan1978/HiJson/releases/download/v2.4.0/HiJson-Windows-x64.zip) | 完整解压，双击 `HiJson/HiJson.exe`。包内附带 Java 运行时，请保留同目录的 `app` 和 `runtime` 文件夹。 |
-| macOS | [HiJson-macOS.dmg](https://github.com/muxuan1978/HiJson/releases/download/v2.4.0/HiJson-macOS.dmg) | 安装 Java 8 或更高版本，打开 DMG，将 HiJson 拖入「应用程序」。 |
-| 已有 Java 8 或更高版本 | [HiJson.jar](https://github.com/muxuan1978/HiJson/releases/download/v2.4.0/HiJson.jar) | 运行 `java -jar HiJson.jar`。 |
+| Windows x64 | [HiJson-Windows-x64.zip](https://github.com/muxuan1978/HiJson/releases/download/v2.5.0/HiJson-Windows-x64.zip) | 完整解压，双击 `HiJson/HiJson.exe`。包内附带 Java 运行时，请保留同目录的 `app` 和 `runtime` 文件夹。 |
+| macOS | [HiJson-macOS.dmg](https://github.com/muxuan1978/HiJson/releases/download/v2.5.0/HiJson-macOS.dmg) | 安装 Java 8 或更高版本，打开 DMG，将 HiJson 拖入「应用程序」。 |
+| 已有 Java 8 或更高版本 | [HiJson.jar](https://github.com/muxuan1978/HiJson/releases/download/v2.5.0/HiJson.jar) | 运行 `java -jar HiJson.jar`。 |
 
 ## Release 说明
+
+### v2.5.0
+
+- 图形模式支持逐个折叠对象和数组。点击左侧字段会展开并定位到图中的对应行，点击卡片或字段也会在编辑器中选中对应内容。
+- 右键点击图形中的字段可复制键名、值或完整键值对。修复了 macOS 树状视图的右键菜单。
+- 工具栏和文档标签分为两行，菜单和常用操作增加了图标。树状视图的字段表可以收起，为编辑区留出空间。
+- 更新应用图标并调整 macOS Dock 图标尺寸。「关于 HiJson」分别列出原始贡献者、维护者、原版项目和当前仓库，两个项目链接均可点击。
 
 ### v2.4.0
 
@@ -25,15 +32,20 @@ HiJson 是一个本地 JSON 查看与编辑工具，支持 Windows 和 macOS。�
 - JSON 字符串格式化，支持树状视图和可编辑的节点图
 - 多标签页支持
 - 右键复制键名、键值、路径、节点内容等
-- **展开全部(E)** — 自动递归展开嵌套的 JSON 字符串（Ctrl+E）
+- **展开嵌套 JSON**（Ctrl+E）会递归展开字符串中的 JSON 对象和数组。
 - 树状视图双向定位。点击左侧键名或值，右侧自动展开到对应节点；选择树节点，左侧会选中完整字段、对象或数组。
 - 文本查找、节点查找
 - 支持从文件打开和保存
+
+顶部工具栏用于新建、打开、保存和格式化，下一行的标签用于切换和关闭文档。窗口较窄时，可从右上角「更多操作」打开文件、保存或查找。树状视图右上角的字段表按钮可以收起键值表，为长路径留出空间，再次点击可恢复原来的宽度。
 
 ### 图形编辑
 
 在右侧选择 **图形**。每张卡片代表一个对象或数组，连线指向嵌套的容器。
 
+- 点击卡片标题右侧的箭头，可单独折叠或展开对象和数组。重新展开父卡片时，子卡片保留各自的折叠状态。
+- 点击左侧 JSON 的键或值，画布会展开通往该字段的分支并滚动到对应位置。点击图中的字段行或卡片标题，编辑器会选中完整字段、对象或数组。
+- 右键点击字段行可复制键名、值或完整键值对。数组行以 `[0]`、`[1]` 等下标作为键名。
 - 双击字段或卡片标题，编辑键名和 JSON 值。例如，`"12"` 是字符串，`12` 是数字。
 - 拖动卡片标题移动位置，拖右下角调整宽高。缩小后可用卡片底部箭头翻看字段。「自动排列」恢复当前标签页的默认布局。
 - 把字段行拖到目标对象或数组。移入对象时可指定键名，移入数组时可指定最终下标（从 0 开始），也可在同一数组内调整顺序。

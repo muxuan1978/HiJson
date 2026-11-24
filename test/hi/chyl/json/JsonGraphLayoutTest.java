@@ -21,7 +21,7 @@ public class JsonGraphLayoutTest {
     @Test public void layoutGesturesSurviveRefreshAndNeverReparent() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             AtomicReference<GraphNode> hit = new AtomicReference<>();
-            JsonGraphCanvas canvas = new JsonGraphCanvas(hit::set, (from, to) -> fail("Layout wrote JSON"));
+            JsonGraphCanvas canvas = new JsonGraphCanvas(node -> { }, hit::set, (from, to) -> fail("Layout wrote JSON"));
             JViewport viewport = new JViewport();
             viewport.setView(canvas);
             viewport.setSize(900, 600);

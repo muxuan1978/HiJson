@@ -1,7 +1,6 @@
 package hi.chyl.json;
 
 import com.google.gson.JsonElement;
-import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import javax.swing.JTree;
@@ -9,7 +8,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.text.BadLocationException;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -115,15 +113,7 @@ final class TreeSourceLink {
         JsonSourceTree.Node node = (JsonSourceTree.Node) selected;
         syncing = true;
         try {
-            source.getFoldManager().ensureOffsetNotInClosedFold(node.start);
-            source.getFoldManager().ensureOffsetNotInClosedFold(node.end - 1);
-            source.setCaretPosition(node.end);
-            source.moveCaretPosition(node.start);
-            source.getCaret().setSelectionVisible(true);
-            Rectangle firstLine = source.modelToView(node.start);
-            if (firstLine != null) source.scrollRectToVisible(firstLine);
-        } catch (BadLocationException ex) {
-            throw new IllegalStateException(ex);
+            node.selectIn(source);
         } finally {
             syncing = false;
         }

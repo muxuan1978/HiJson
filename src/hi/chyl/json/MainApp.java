@@ -4,13 +4,16 @@
 
 package hi.chyl.json;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import org.jdesktop.application.Application;
 import org.jdesktop.application.SingleFrameApplication;
 
 import javax.swing.UIManager;
 import javax.swing.SwingUtilities;
+import java.awt.Desktop;
 import java.awt.Window;
 import java.awt.Frame;
+import java.beans.EventHandler;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.io.InputStream;
@@ -39,7 +42,24 @@ public class MainApp extends SingleFrameApplication {
         }
         show(new MainView(this));
         mainView = (MainView) getMainView();
-        if (isMac()) startSocketServer();
+        if (isMac()) {
+            installMacAboutMenu();
+            startSocketServer();
+        }
+    }
+
+    private void installMacAboutMenu() {
+        // The About handler moved from Apple's Java 8 API to java.awt.desktop in Java 9.
+        try {
+            Class<?> api = SystemInfo.isJava_9_orLater ? Desktop.class : Class.forName("com.apple.eawt.Application");
+            Object application = SystemInfo.isJava_9_orLater ? Desktop.getDesktop() : api.getMethod("getApplication").invoke(null);
+            Class<?> handler = Class.forName(SystemInfo.isJava_9_orLater
+                    ? "java.awt.desktop.AboutHandler" : "com.apple.eawt.AboutHandler");
+            api.getMethod("setAboutHandler", handler).invoke(application,
+                    EventHandler.create(handler, mainView, "showAboutBox"));
+        } catch (ReflectiveOperationException | SecurityException ex) {
+            System.err.println("Could not register the macOS About menu: " + ex);
+        }
     }
 
     /**

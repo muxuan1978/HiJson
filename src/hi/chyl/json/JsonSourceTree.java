@@ -1,7 +1,10 @@
 package hi.chyl.json;
 
 import com.google.gson.JsonElement;
+import java.awt.Rectangle;
 import java.util.Map;
+import javax.swing.text.BadLocationException;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 /** Builds the Swing tree and UTF-16 editor ranges together from the same validated document. */
@@ -9,14 +12,15 @@ final class JsonSourceTree {
     static final class Node extends DefaultMutableTreeNode {
         final JsonElement value;
         final String key, summary;
-        final int start, hitStart;
+        final int start, hitStart, index;
         int end, hitEnd;
 
-        Node(String key, JsonElement value, int start, int hitStart) {
+        Node(String key, JsonElement value, int start, int hitStart, int index) {
             this.key = key;
             this.value = value;
             this.start = start;
             this.hitStart = hitStart;
+            this.index = index;
             String type;
             if (value.isJsonObject()) {
                 type = Kit.sObj;
@@ -37,6 +41,30 @@ final class JsonSourceTree {
                 label += Kit.split + (type.equals(Kit.sStr) ? "\"" + summary + "\"" : summary);
             }
             setUserObject(label);
+        }
+
+        int[] indexPath() {
+            int[] path = new int[getLevel()];
+            Node node = this;
+            for (int i = path.length - 1; i >= 0; i--) {
+                path[i] = node.index;
+                node = (Node) node.getParent();
+            }
+            return path;
+        }
+
+        void selectIn(RSyntaxTextArea source) {
+            try {
+                source.getFoldManager().ensureOffsetNotInClosedFold(start);
+                source.getFoldManager().ensureOffsetNotInClosedFold(end - 1);
+                source.setCaretPosition(end);
+                source.moveCaretPosition(start);
+                source.getCaret().setSelectionVisible(true);
+                Rectangle firstLine = source.modelToView(start);
+                if (firstLine != null) source.scrollRectToVisible(firstLine);
+            } catch (BadLocationException ex) {
+                throw new IllegalStateException(ex);
+            }
         }
 
         Node at(int offset) {
@@ -61,12 +89,12 @@ final class JsonSourceTree {
     }
 
     static Node build(String text, JsonElement parsed) {
-        return new JsonSourceTree(text).read("JSON", parsed, false);
+        return new JsonSourceTree(text).read("JSON", parsed, false, -1);
     }
 
-    private Node read(String key, JsonElement value, boolean member) {
+    private Node read(String key, JsonElement value, boolean member, int index) {
         int indentation = skipSpace();
-        Node node = new Node(key, value, pos, indentation);
+        Node node = new Node(key, value, pos, indentation, index);
         if (member) {
             skipString();
             skipSpace();
@@ -77,11 +105,13 @@ final class JsonSourceTree {
             pos++; // opening delimiter
             if (value.isJsonObject()) {
                 for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
-                    node.add(read(entry.getKey(), entry.getValue(), true));
+                    node.add(read(entry.getKey(), entry.getValue(), true, node.getChildCount()));
                 }
             } else {
-                int index = 0;
-                for (JsonElement item : value.getAsJsonArray()) node.add(read(Kit.fkey(index++), item, false));
+                for (JsonElement item : value.getAsJsonArray()) {
+                    int childIndex = node.getChildCount();
+                    node.add(read(Kit.fkey(childIndex), item, false, childIndex));
+                }
             }
             skipSpace();
             pos++; // closing delimiter
